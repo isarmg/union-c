@@ -47,6 +47,6 @@ pub use accounts::{
 };
 pub use jobs::{create_job, finish_job};
 pub use operations::{
-    insert_audit, prune_operational_history, service_desired_state, service_event,
-    set_service_desired_state,
+    abandon_running_jobs, insert_audit, prune_operational_history, service_desired_state,
+    service_event, set_service_desired_state,
 };

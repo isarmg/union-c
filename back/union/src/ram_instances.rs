@@ -69,6 +69,16 @@ pub async fn create(state: &AppState, req: RamInstanceSaveRequest) -> AppResult<
         verify_tls: req.verify_tls,
     };
     database::insert_ram_instance(state.db().as_ref(), &record).await?;
+    database::insert_audit(
+        state.db().as_ref(),
+        "ram.instance.create",
+        &record.id,
+        Some(&format!(
+            "name={} host={} port={} tls={}",
+            record.name, record.host_address, record.port, record.use_tls
+        )),
+    )
+    .await?;
     info(state, record).await
 }
 
@@ -85,12 +95,29 @@ pub async fn update(
     record.use_tls = req.use_tls;
     record.verify_tls = req.verify_tls;
     database::update_ram_instance(state.db().as_ref(), &record).await?;
+    database::insert_audit(
+        state.db().as_ref(),
+        "ram.instance.update",
+        &record.id,
+        Some(&format!(
+            "name={} host={} port={} tls={}",
+            record.name, record.host_address, record.port, record.use_tls
+        )),
+    )
+    .await?;
     info(state, record).await
 }
 
 pub async fn delete(state: &AppState, id: &str) -> AppResult<()> {
     let _ = get(state, id).await?;
     database::delete_ram_instance(state.db().as_ref(), id).await?;
+    database::insert_audit(
+        state.db().as_ref(),
+        "ram.instance.delete",
+        id,
+        Some("remote RAM instance removed"),
+    )
+    .await?;
     Ok(())
 }
 

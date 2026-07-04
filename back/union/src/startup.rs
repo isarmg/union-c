@@ -31,8 +31,8 @@ pub async fn initialize() -> anyhow::Result<InitializedApp> {
     let dummy_password_hash = hash_password(uuid::Uuid::new_v4().to_string()).await?;
     let state = AppState::new(settings, db, dummy_password_hash, local_config);
 
+    start_maintenance(state.clone());
     if database_configured {
-        start_maintenance(state.db().as_ref().clone());
         initialize_database_backed_services(&state).await?;
     }
 
@@ -123,22 +123,21 @@ fn listen_address(settings: &Settings) -> anyhow::Result<SocketAddr> {
     Ok(SocketAddr::new(bind_ip, settings.server.port))
 }
 
-fn start_maintenance(db: database::DbPool) {
+fn start_maintenance(state: AppState) {
     // clamp 防止配置错误导致刚产生的记录被清理，或历史数据永不清理。
     let retention_days = std::env::var("UNION_RETENTION_DAYS")
         .ok()
         .and_then(|value| value.parse::<i64>().ok())
         .unwrap_or(90)
         .clamp(7, 3650);
-    tokio::spawn(maintenance_loop(db, retention_days));
+    tokio::spawn(maintenance_loop(state, retention_days));
 }
 
 async fn initialize_database_backed_services(state: &AppState) -> anyhow::Result<()> {
-    // 孤立文章以草稿收养，防止 Astro 把未纳管内容直接发布。
-    match blog::adopt_orphan_posts(state).await {
-        Ok(0) => {}
-        Ok(count) => tracing::info!("startup: adopted {count} orphan blog post(s) as drafts"),
-        Err(error) => tracing::warn!("startup: failed to adopt orphan blog posts: {error}"),
+    blog::ensure_blog_seeded(state).await?;
+    let abandoned = database::abandon_running_jobs(state.db().as_ref()).await?;
+    if abandoned > 0 {
+        tracing::warn!("startup: marked {abandoned} interrupted job(s) as abandoned");
     }
 
     if database::service_desired_state(state.db().as_ref(), "ram")
@@ -152,16 +151,30 @@ async fn initialize_database_backed_services(state: &AppState) -> anyhow::Result
     Ok(())
 }
 
-async fn maintenance_loop(db: database::DbPool, retention_days: i64) {
+async fn maintenance_loop(state: AppState, retention_days: i64) {
     loop {
-        match database::prune_operational_history(&db, retention_days).await {
-            Ok(count) if count > 0 => {
-                tracing::info!("maintenance: removed {count} old history rows")
+        let db = state.db();
+        match database::prune_operational_history(db.as_ref(), retention_days).await {
+            Ok(result) => {
+                for path in result.log_paths {
+                    remove_managed_build_log(&state.settings.blog.build_log_dir, &path);
+                }
+                if result.removed > 0 {
+                    tracing::info!("maintenance: removed {} old history rows", result.removed);
+                }
             }
-            Ok(_) => {}
             Err(error) => tracing::warn!("maintenance: failed to prune history: {error}"),
         }
         tokio::time::sleep(std::time::Duration::from_secs(24 * 60 * 60)).await;
+    }
+}
+
+fn remove_managed_build_log(log_dir: &std::path::Path, stored_path: &str) {
+    let path = std::path::Path::new(stored_path);
+    if path.parent() == Some(log_dir)
+        && path.extension().and_then(|value| value.to_str()) == Some("log")
+    {
+        let _ = std::fs::remove_file(path);
     }
 }
 

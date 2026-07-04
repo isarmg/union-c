@@ -8,7 +8,7 @@
 - 默认最大请求体为 10 MiB；
 - 除登录和健康检查外，接口需要有效会话；
 - 浏览器 Cookie 发起的 POST、PUT、DELETE 等变更请求必须带 `X-CSRF-Token: 1`；
-- 自动化客户端可使用 `Authorization: Bearer <session-token>`；
+- 长效会话只存在 HttpOnly Cookie 中，不返回给 JavaScript；
 - 错误响应统一包含稳定机器码 `code`、HTTP 分类 `error` 和展示文本 `message`；客户端逻辑只能判断 `code`，不能解析自然语言文本；
 - 每个请求由服务端生成或传播 `X-Request-ID`，审计日志记录操作人和请求 ID。
 
@@ -35,7 +35,7 @@ React 页面 -> api.ts -> Caddy/Vite 代理 -> 全局中间件
 | POST | `/api/auth/logout` | 注销当前会话。 |
 | GET | `/api/auth/me` | 当前用户。 |
 | POST | `/api/auth/change-password` | 修改密码并处理会话。 |
-| GET / PUT | `/api/settings/database` | 读取或测试并保存 PostgreSQL 连接；保存后立即切换连接池。 |
+| GET / PUT | `/api/settings/database` | 读取或测试并保存 PostgreSQL 连接；保存成功后要求重启。 |
 | GET | `/api/health` | HTTP 存活检查。 |
 | GET | `/api/ready` | 包含 PostgreSQL 往返的就绪检查。 |
 
@@ -91,13 +91,16 @@ React 页面 -> api.ts -> Caddy/Vite 代理 -> 全局中间件
 | 系统 | `POST .../restart`、`POST .../reset-display` |
 | 封面 | `GET .../covers/{index}`、`POST .../covers/upload` |
 
+代理入口会在转发前执行最小输入校验：应用、配置和密码请求体必须是 JSON object 并受大小限制；PIN 必须是 4 到 8 位数字；客户端 ID、封面 key 不能包含控制字符；封面 URL 只允许 `http` 或 `https`。这些规则只定义 Union 的安全边界，不替代 Sunshine 自身的字段校验。
+
 ## blog
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET/DELETE | `/api/blog/posts` | 列表或按 query path 删除。 |
+| GET/DELETE | `/api/blog/posts` | 列表支持 `limit`（最大 500）和 `offset`；删除使用 query path。 |
 | GET | `/api/blog/posts/detail?path=...` | 文章详情。 |
 | POST | `/api/blog/posts/save` | 新建或保存文章。 |
+| POST | `/api/blog/import-orphans` | 把内容目录中的未纳管 Markdown 显式导入为草稿。 |
 | GET/POST | `/api/blog/home` | 首页配置。 |
 | GET | `/api/blog/taxonomy` | 分类和标签。 |
 | POST | `/api/blog/build` | 手动构建。 |

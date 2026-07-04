@@ -54,6 +54,12 @@ pub struct BlogPathQuery {
     pub path: String,
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct BlogListQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
 #[derive(Debug, Clone, Default)]
 /// 从数据库记录中派生出的文章元数据。
 ///
@@ -92,8 +98,19 @@ mod taxonomy;
 
 pub use build::{build_blog, trigger_background_build};
 pub use orphans::adopt_orphan_posts;
-pub use posts::{delete_post, list_posts, post_detail, publish_post, save_post, unpublish_post};
+pub use posts::{
+    delete_post, list_posts, list_posts_page, post_detail, publish_post, save_post, unpublish_post,
+};
+pub use storage::ensure_blog_seeded;
 pub use taxonomy::{
     create_category, create_tag, delete_category, delete_tag, home_config, rename_category,
     rename_tag, save_home_config, taxonomy,
 };
+
+/// 显式导入内容目录中未纳管的文章；正常启动和构建不会反向写入数据库。
+pub async fn import_orphan_posts(state: &AppState) -> AppResult<usize> {
+    let _content_guard = state.blog.content_lock.lock().await;
+    let imported = adopt_orphan_posts(state).await?;
+    storage::export_blog_content(state).await?;
+    Ok(imported)
+}

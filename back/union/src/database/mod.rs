@@ -203,11 +203,28 @@ struct Migration {
 
 // 目录不会被运行时自动扫描。include_str! 在编译期把 SQL 放进 union 二进制，部署时
 // 不需要复制 migrations 目录；新增 SQL 文件后也必须在此数组登记版本和说明。
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    description: "production baseline schema",
-    sql: include_str!("../../migrations/0001_baseline.sql"),
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        description: "production baseline schema",
+        sql: include_str!("../../migrations/0001_baseline.sql"),
+    },
+    Migration {
+        version: 2,
+        description: "storage integrity and cleanup",
+        sql: include_str!("../../migrations/0002_storage_integrity.sql"),
+    },
+    Migration {
+        version: 3,
+        description: "data shape constraints",
+        sql: include_str!("../../migrations/0003_data_shape_constraints.sql"),
+    },
+    Migration {
+        version: 4,
+        description: "ram instance TLS column compatibility",
+        sql: include_str!("../../migrations/0004_ram_instance_tls_columns.sql"),
+    },
+];
 
 fn migration_checksum(sql: &str) -> String {
     Sha256::digest(sql.as_bytes())

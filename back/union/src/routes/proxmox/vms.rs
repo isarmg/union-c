@@ -9,7 +9,8 @@ pub(super) async fn list_vms(
     Path(p): Path<NodePath>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
-    let data = proxmox::get(&host, &format!("nodes/{}/qemu", p.node)).await?;
+    let node = validate_node(&p.node)?;
+    let data = proxmox::get(&host, &format!("nodes/{node}/qemu")).await?;
     Ok(Json(data))
 }
 
@@ -18,11 +19,9 @@ pub(super) async fn vm_status(
     Path(p): Path<VmPath>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
-    let data = proxmox::get(
-        &host,
-        &format!("nodes/{}/qemu/{}/status/current", p.node, p.vmid),
-    )
-    .await?;
+    let node = validate_node(&p.node)?;
+    let vmid = validate_vmid(&p.vmid)?;
+    let data = proxmox::get(&host, &format!("nodes/{node}/qemu/{vmid}/status/current")).await?;
     Ok(Json(data))
 }
 
@@ -31,7 +30,9 @@ pub(super) async fn vm_config(
     Path(p): Path<VmPath>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
-    let data = proxmox::get(&host, &format!("nodes/{}/qemu/{}/config", p.node, p.vmid)).await?;
+    let node = validate_node(&p.node)?;
+    let vmid = validate_vmid(&p.vmid)?;
+    let data = proxmox::get(&host, &format!("nodes/{node}/qemu/{vmid}/config")).await?;
     Ok(Json(data))
 }
 
@@ -90,6 +91,8 @@ pub(super) async fn vm_delete(
     Query(q): Query<PveDeleteQuery>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
+    let node = validate_node(&p.node)?;
+    let vmid = validate_vmid(&p.vmid)?;
     let mut params: Vec<(&str, &str)> = Vec::new();
     let purge_str;
     let destroy_str;
@@ -101,8 +104,7 @@ pub(super) async fn vm_delete(
         destroy_str = "1".to_string();
         params.push(("destroy-unreferenced-disks", &destroy_str));
     }
-    let data =
-        proxmox::delete(&host, &format!("nodes/{}/qemu/{}", p.node, p.vmid), &params).await?;
+    let data = proxmox::delete(&host, &format!("nodes/{node}/qemu/{vmid}"), &params).await?;
     Ok(Json(data))
 }
 
@@ -112,7 +114,9 @@ pub(super) async fn vm_migrate(
     Json(req): Json<PveMigrateRequest>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
-    let target = req.target.trim().to_string();
+    let node = validate_node(&p.node)?;
+    let vmid = validate_vmid(&p.vmid)?;
+    let target = validate_node(&req.target)?.to_string();
     let online_str = if req.online.unwrap_or(true) { "1" } else { "0" }.to_string();
     let local_disks_str = if req.with_local_disks.unwrap_or(false) {
         "1"
@@ -124,12 +128,7 @@ pub(super) async fn vm_migrate(
     if req.with_local_disks.is_some() {
         params.push(("with-local-disks", local_disks_str.as_str()));
     }
-    let data = proxmox::post(
-        &host,
-        &format!("nodes/{}/qemu/{}/migrate", p.node, p.vmid),
-        &params,
-    )
-    .await?;
+    let data = proxmox::post(&host, &format!("nodes/{node}/qemu/{vmid}/migrate"), &params).await?;
     Ok(Json(data))
 }
 
@@ -139,7 +138,9 @@ pub(super) async fn vm_snapshots(
     Path(p): Path<VmPath>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
-    let data = proxmox::get(&host, &format!("nodes/{}/qemu/{}/snapshot", p.node, p.vmid)).await?;
+    let node = validate_node(&p.node)?;
+    let vmid = validate_vmid(&p.vmid)?;
+    let data = proxmox::get(&host, &format!("nodes/{node}/qemu/{vmid}/snapshot")).await?;
     Ok(Json(data))
 }
 
@@ -156,9 +157,12 @@ pub(super) async fn vm_snapshot_delete(
     Path(p): Path<SnapPath>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
+    let node = validate_node(&p.node)?;
+    let vmid = validate_vmid(&p.vmid)?;
+    let snap = validate_snapshot(&p.snap)?;
     let data = proxmox::delete(
         &host,
-        &format!("nodes/{}/qemu/{}/snapshot/{}", p.node, p.vmid, p.snap),
+        &format!("nodes/{node}/qemu/{vmid}/snapshot/{snap}"),
         &[],
     )
     .await?;
@@ -170,12 +174,12 @@ pub(super) async fn vm_snapshot_rollback(
     Path(p): Path<SnapPath>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
+    let node = validate_node(&p.node)?;
+    let vmid = validate_vmid(&p.vmid)?;
+    let snap = validate_snapshot(&p.snap)?;
     let data = proxmox::post(
         &host,
-        &format!(
-            "nodes/{}/qemu/{}/snapshot/{}/rollback",
-            p.node, p.vmid, p.snap
-        ),
+        &format!("nodes/{node}/qemu/{vmid}/snapshot/{snap}/rollback"),
         &[],
     )
     .await?;

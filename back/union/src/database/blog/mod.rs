@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use sqlx_core::{query::query, row::Row};
-use sqlx_postgres::PgRow;
+use sqlx_postgres::{PgConnection, PgRow};
 
 use super::DbPool;
 
@@ -66,8 +66,8 @@ mod posts;
 mod taxonomy;
 
 pub use posts::{
-    blog_post_by_path, delete_blog_post, list_blog_posts, upsert_blog_post,
-    upsert_blog_post_from_path,
+    blog_post_by_path, delete_blog_post, list_blog_posts, list_blog_posts_page,
+    list_blog_posts_with_content, upsert_blog_post, upsert_blog_post_from_path, upsert_blog_posts,
 };
 pub use taxonomy::{
     batch_insert_category_tags, batch_insert_taxonomy, delete_blog_category_tag,

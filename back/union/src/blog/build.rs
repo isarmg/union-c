@@ -1,6 +1,6 @@
 //! Astro 静态站构建调度。
 
-use super::{orphans::adopt_orphan_posts, storage::*, *};
+use super::{storage::*, *};
 
 /// 在后台触发一次博客构建，构建成功后向 SSE 通道广播通知。
 ///
@@ -56,10 +56,7 @@ async fn build_blog_once(state: &AppState) -> AppResult<BlogBuildResponse> {
     }
 
     ensure_blog_seeded(state).await?;
-    // 构建前先把内容目录中不在数据库里的文件导入为草稿，
-    // 防止 Astro 直接读取这些文件并把它们作为已发布文章展示。
     let content_guard = state.blog.content_lock.lock().await;
-    let adopted = adopt_orphan_posts(state).await?;
     export_blog_content(state).await?;
     drop(content_guard);
 
@@ -195,7 +192,7 @@ async fn build_blog_once(state: &AppState) -> AppResult<BlogBuildResponse> {
             .unwrap_or("")
             .to_string(),
         log_tail: tail_lines(&log_path, 80)?,
-        adopted_as_drafts: adopted,
+        adopted_as_drafts: 0,
     })
 }
 

@@ -36,28 +36,20 @@ async fn settings_with_hosts(
 pub(super) async fn persist_registered_host(
     state: &AppState,
     hosts: &[ProxmoxHostConfig],
-    host: &ProxmoxHostConfig,
+    _host: &ProxmoxHostConfig,
 ) -> AppResult<()> {
     let settings = settings_with_hosts(state, hosts).await;
-    database::save_app_settings_and_register_host(
-        state.db().as_ref(),
-        &settings,
-        "proxmox",
-        &host.id,
-        &host.host,
-    )
-    .await?;
+    database::save_app_settings(state.db().as_ref(), &settings).await?;
     Ok(())
 }
 
 pub(super) async fn persist_unregistered_host(
     state: &AppState,
     hosts: &[ProxmoxHostConfig],
-    id: &str,
+    _id: &str,
 ) -> AppResult<()> {
     let settings = settings_with_hosts(state, hosts).await;
-    database::save_app_settings_and_unregister_host(state.db().as_ref(), &settings, "proxmox", id)
-        .await?;
+    database::save_app_settings(state.db().as_ref(), &settings).await?;
     Ok(())
 }
 
@@ -114,6 +106,37 @@ pub(super) fn validate_host_request(
     Ok(())
 }
 
+pub(super) fn validate_path_segment<'a>(label: &str, value: &'a str) -> AppResult<&'a str> {
+    let value = value.trim();
+    if value.is_empty()
+        || matches!(value, "." | "..")
+        || value.contains(['/', '\\', '?', '#', '\r', '\n', '\0'])
+    {
+        return Err(AppError::BadRequest(format!("invalid PVE {label}")));
+    }
+    Ok(value)
+}
+
+pub(super) fn validate_node(value: &str) -> AppResult<&str> {
+    validate_path_segment("node", value)
+}
+
+pub(super) fn validate_storage(value: &str) -> AppResult<&str> {
+    validate_path_segment("storage", value)
+}
+
+pub(super) fn validate_snapshot(value: &str) -> AppResult<&str> {
+    validate_path_segment("snapshot", value)
+}
+
+pub(super) fn validate_vmid(value: &str) -> AppResult<&str> {
+    let value = validate_path_segment("vmid", value)?;
+    if value.parse::<u32>().is_err() || value == "0" {
+        return Err(AppError::BadRequest("invalid PVE vmid".to_string()));
+    }
+    Ok(value)
+}
+
 // ─── 内部辅助 ─────────────────────────────────────────────────────────────────
 
 /// 统一处理 VM/CT 电源操作（start/stop/shutdown/reboot/suspend/resume/reset）。
@@ -126,6 +149,8 @@ pub(super) async fn vm_power(
     action: &str, // "start" | "stop" | "shutdown" | "reboot" | "suspend" | "resume" | "reset"
 ) -> AppResult<Json<Value>> {
     let host = find_host(state, host_id).await?;
+    let node = validate_node(node)?;
+    let vmid = validate_vmid(vmid)?;
     let data = proxmox::post(
         &host,
         &format!("nodes/{node}/{kind}/{vmid}/status/{action}"),
@@ -145,10 +170,10 @@ pub(super) async fn snapshot_create(
     req: &PveSnapshotRequest,
 ) -> AppResult<Json<Value>> {
     let host = find_host(state, host_id).await?;
+    let node = validate_node(node)?;
+    let vmid = validate_vmid(vmid)?;
     let snapname = req.snapname.trim().to_string();
-    if snapname.is_empty() {
-        return Err(AppError::BadRequest("snapname 不能为空".to_string()));
-    }
+    validate_snapshot(&snapname)?;
     let vmstate_str = if req.vmstate.unwrap_or(false) {
         "1"
     } else {
@@ -179,5 +204,22 @@ mod tests {
         assert!(validate_host("pve.example.lan").is_ok());
         assert!(validate_host("[2001:db8::1]").is_ok());
         assert!(validate_host("bad host").is_err());
+    }
+
+    #[test]
+    fn validates_pve_path_segments() {
+        assert_eq!(validate_node("pve-1").unwrap(), "pve-1");
+        assert_eq!(validate_storage("local-lvm").unwrap(), "local-lvm");
+        assert_eq!(
+            validate_snapshot("before-upgrade").unwrap(),
+            "before-upgrade"
+        );
+        assert_eq!(validate_vmid("100").unwrap(), "100");
+
+        assert!(validate_node("../node").is_err());
+        assert!(validate_storage("local/content").is_err());
+        assert!(validate_snapshot("bad\nsnap").is_err());
+        assert!(validate_vmid("abc").is_err());
+        assert!(validate_vmid("0").is_err());
     }
 }

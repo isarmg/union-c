@@ -28,7 +28,7 @@ use crate::{
 ///    便于调试超时、字符集等边缘问题。
 ///
 /// 实际发出的请求形如：
-/// ```
+/// ```text
 /// GET /__ram__/health HTTP/1.1\r\n
 /// Host: 127.0.0.1:5000\r\n
 /// User-Agent: union\r\n
@@ -96,7 +96,8 @@ pub async fn ram_entry(state: &AppState, path: Option<String>) -> AppResult<RamE
 }
 
 fn ram_loopback_host(state: &AppState) -> &'static str {
-    if state.settings.ram.bind == "::" {
+    let bind = state.settings.ram.bind.trim().trim_matches(['[', ']']);
+    if matches!(bind, "::" | "::1") {
         "::1"
     } else {
         "127.0.0.1"
@@ -118,9 +119,8 @@ pub(super) fn ram_base_url(state: &AppState) -> String {
         );
     }
     format!(
-        "http://{}:{}{}",
-        ram_loopback_host(state),
-        state.settings.ram.port,
+        "http://{}{}",
+        format_host_port(ram_loopback_host(state), state.settings.ram.port),
         normalized_path_prefix(&state.settings.ram.path_prefix)
     )
 }
@@ -131,9 +131,8 @@ pub(super) fn ram_health_url(state: &AppState) -> String {
 
 fn ram_url_for_path(state: &AppState, path: &str) -> String {
     format!(
-        "http://{}:{}{}",
-        ram_loopback_host(state),
-        state.settings.ram.port,
+        "http://{}{}",
+        format_host_port(ram_loopback_host(state), state.settings.ram.port),
         path
     )
 }
@@ -275,12 +274,40 @@ async fn raw_ram_get(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        app_config::{LocalConfig, Settings},
+        database,
+        state::AppState,
+    };
 
     #[test]
     fn formats_ipv6_and_encodes_path_segments() {
         assert_eq!(format_host_port("::1", 5000), "[::1]:5000");
         assert_eq!(format_host_port("127.0.0.1", 5000), "127.0.0.1:5000");
         assert_eq!(encode_path("目录/a b.md"), "%E7%9B%AE%E5%BD%95/a%20b.md");
+    }
+
+    #[tokio::test]
+    async fn local_ram_urls_bracket_ipv6_loopback() {
+        let mut settings = Settings::default();
+        settings.ram.bind = "[::]".to_string();
+        settings.ram.port = 5000;
+        let state = AppState::new(
+            settings,
+            database::disconnected_pool().expect("disconnected pool"),
+            "unused".to_string(),
+            LocalConfig {
+                database_url: String::new(),
+                admin_username: "admin".to_string(),
+                admin_password_hash: "unused".to_string(),
+            },
+        );
+
+        assert_eq!(ram_base_url(&state), "http://[::1]:5000/files");
+        assert_eq!(
+            ram_health_url(&state),
+            "http://[::1]:5000/files/__ram__/health"
+        );
     }
 
     #[test]

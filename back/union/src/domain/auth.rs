@@ -10,7 +10,6 @@ pub struct LoginRequest {
 /// 登录成功响应。
 #[derive(Debug, Serialize)]
 pub struct LoginResponse {
-    pub token: String,
     pub username: String,
 }
 

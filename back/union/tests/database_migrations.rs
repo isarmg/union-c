@@ -23,44 +23,25 @@ async fn migrations_are_versioned_and_idempotent() {
 
     let row = query(
         "SELECT COUNT(*) AS count, MAX(checksum) AS checksum \
-         FROM schema_migrations WHERE version = 1",
+         FROM schema_migrations WHERE version IN (1, 2, 3, 4)",
     )
     .fetch_one(&pool)
     .await
     .expect("read migration version");
-    assert_eq!(row.get::<i64, _>("count"), 1);
+    assert_eq!(row.get::<i64, _>("count"), 4);
     assert_eq!(row.get::<Option<String>, _>("checksum").unwrap().len(), 64);
 
-    // 配置先写、主机地址后写；第二步失败时第一步必须回滚。
+    // 运行配置应能完整加密保存并重新加载。
     let baseline = Settings::default();
-    database::save_app_settings_and_register_host(
-        &pool,
-        &baseline,
-        "integration-test",
-        "atomic-host",
-        "127.0.0.1",
-    )
-    .await
-    .expect("seed settings and host");
-    let mut rejected = baseline.clone();
-    rejected.server.port = 6553;
-    assert!(
-        database::save_app_settings_and_register_host(
-            &pool,
-            &rejected,
-            "integration-test",
-            "atomic-host",
-            "invalid host with spaces",
-        )
+    database::save_app_settings(&pool, &baseline)
         .await
-        .is_err()
-    );
+        .expect("seed settings");
     let loaded = database::load_or_seed_app_settings(&pool, &Settings::default())
         .await
         .expect("load settings after rollback");
     assert_eq!(loaded.server.port, baseline.server.port);
 
-    // 删除远程 RAM 时，实例、地址和服务账号必须一起删除。
+    // 删除远程 RAM 时，实例和服务账号必须一起删除。
     let record = RamInstanceRecord {
         id: "integration-ram".to_string(),
         name: "Integration RAM".to_string(),
@@ -96,14 +77,32 @@ async fn migrations_are_versioned_and_idempotent() {
         .expect("delete RAM aggregate");
     for (table, condition) in [
         ("ram_instances", "id='integration-ram'"),
-        (
-            "managed_host_addresses",
-            "kind='ram' AND host_id='integration-ram'",
-        ),
         ("service_accounts", "service_name='ram:integration-ram'"),
     ] {
         let sql = format!("SELECT COUNT(*) AS count FROM {table} WHERE {condition}");
         let row = query(&sql).fetch_one(&pool).await.expect("count rows");
         assert_eq!(row.get::<i64, _>("count"), 0, "table {table}");
     }
+
+    let invalid_path = query(
+        "INSERT INTO blog_posts (id, relative_path, extension, title, description, draft, featured, pub_date) \
+         VALUES ('invalid-path', '../escape.md', 'md', 'Invalid', 'Invalid', true, false, CURRENT_DATE)",
+    )
+    .execute(&pool)
+    .await;
+    assert!(
+        invalid_path.is_err(),
+        "invalid blog path should be rejected"
+    );
+
+    let invalid_external_host = query(
+        "INSERT INTO external_hosts(kind, host_id, address, config, secret) \
+         VALUES ('sunshine', 'invalid-json', '127.0.0.1', '[]', NULL)",
+    )
+    .execute(&pool)
+    .await;
+    assert!(
+        invalid_external_host.is_err(),
+        "external host config must be a JSON object"
+    );
 }

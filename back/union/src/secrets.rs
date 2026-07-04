@@ -9,8 +9,10 @@ use aes_gcm::{
 use anyhow::{Context, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
-const PREFIX: &str = "enc:v1:";
+const LEGACY_PREFIX: &str = "enc:v1:";
+const PREFIX: &str = "enc:v2:";
 const KEY_ENV: &str = "UNION_SECRET_KEY";
+const KEY_ID_ENV: &str = "UNION_SECRET_KEY_ID";
 const KEY_PATH: &str = "data/union.secret";
 static KEY_BYTES: OnceLock<[u8; 32]> = OnceLock::new();
 
@@ -32,7 +34,7 @@ pub fn init() -> anyhow::Result<()> {
 }
 
 pub fn is_encrypted(value: &str) -> bool {
-    value.starts_with(PREFIX)
+    value.starts_with(PREFIX) || value.starts_with(LEGACY_PREFIX)
 }
 
 pub fn encrypt(value: &str) -> anyhow::Result<String> {
@@ -45,13 +47,28 @@ pub fn encrypt(value: &str) -> anyhow::Result<String> {
         .map_err(|_| anyhow::anyhow!("failed to encrypt secret"))?;
     let mut payload = nonce.to_vec();
     payload.extend(ciphertext);
-    Ok(format!("{PREFIX}{}", STANDARD.encode(payload)))
+    Ok(format!(
+        "{PREFIX}{}:{}",
+        current_key_id()?,
+        STANDARD.encode(payload)
+    ))
 }
 
 pub fn decrypt(value: &str) -> anyhow::Result<String> {
-    let encoded = value
-        .strip_prefix(PREFIX)
-        .ok_or_else(|| anyhow::anyhow!("unencrypted secret is not supported"))?;
+    let encoded = if let Some(payload) = value.strip_prefix(PREFIX) {
+        let (key_id, encoded) = payload
+            .split_once(':')
+            .ok_or_else(|| anyhow::anyhow!("invalid encrypted secret key identifier"))?;
+        let current = current_key_id()?;
+        if key_id != current {
+            bail!("encrypted secret uses key id '{key_id}', but current key id is '{current}'");
+        }
+        encoded
+    } else {
+        value
+            .strip_prefix(LEGACY_PREFIX)
+            .ok_or_else(|| anyhow::anyhow!("unencrypted secret is not supported"))?
+    };
     init()?;
     let payload = STANDARD
         .decode(encoded)
@@ -66,6 +83,19 @@ pub fn decrypt(value: &str) -> anyhow::Result<String> {
         .decrypt(nonce.into(), ciphertext)
         .map_err(|_| anyhow::anyhow!("failed to decrypt secret; check {KEY_ENV} or {KEY_PATH}"))?;
     String::from_utf8(plaintext).context("decrypted secret is not UTF-8")
+}
+
+fn current_key_id() -> anyhow::Result<String> {
+    let value = std::env::var(KEY_ID_ENV).unwrap_or_else(|_| "primary".to_string());
+    if value.is_empty()
+        || value.len() > 64
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        bail!("{KEY_ID_ENV} must contain 1-64 ASCII letters, digits, '-' or '_'");
+    }
+    Ok(value)
 }
 
 fn decode_key(encoded: &str) -> anyhow::Result<[u8; 32]> {
@@ -112,5 +142,6 @@ fn write_private_key_file(path: &str, content: &[u8]) -> std::io::Result<()> {
         .create_new(true)
         .mode(0o600)
         .open(path)?;
-    file.write_all(content)
+    file.write_all(content)?;
+    file.sync_all()
 }

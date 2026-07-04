@@ -46,11 +46,13 @@ journalctl -u union --since today --no-pager
 
 ## 博客维护
 
-文章管理源是 PostgreSQL。保存文章时，`union` 会序列化 frontmatter 和正文到 `data/blog/content/`；发布或首页配置变化会触发构建调度。
+文章管理源是 PostgreSQL。保存文章时先提交数据库，再生成完整临时内容目录并原子替换
+`data/blog/content/`；发布或首页配置变化会触发构建调度。
 
 构建使用合并调度和全局信号量，避免多个请求同时覆盖 `dist`。发布脚本先生成 `dist.next`，成功后切换到 `dist`。若构建失败，查看 `data/blog/logs/`，不要手工把不完整的 `dist.next` 当成线上目录。
 
-不要直接把手写 Markdown 当作唯一内容源。必须人工导入时，先作为草稿写入数据库，再由系统导出。
+不要直接把手写 Markdown 当作唯一内容源。必须人工导入时，把文件放入内容目录后调用
+`POST /api/blog/import-orphans`；系统只会以草稿导入，正常启动和构建不会自动反向写数据库。
 
 ## ram 维护
 

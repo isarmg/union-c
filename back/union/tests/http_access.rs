@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
@@ -22,6 +20,16 @@ fn test_state() -> AppState {
             admin_password_hash: "unused".to_string(),
         },
     )
+}
+
+async fn insert_session(state: &AppState, token: &str) {
+    state.auth.sessions.write().await.insert(
+        token.to_string(),
+        LocalSession {
+            username: "admin".to_string(),
+            expires_at: chrono::Utc::now() + chrono::Duration::minutes(5),
+        },
+    );
 }
 
 #[tokio::test]
@@ -48,13 +56,7 @@ async fn health_is_public_but_current_user_requires_authentication() {
 #[tokio::test]
 async fn cookie_authenticated_mutation_requires_csrf_header() {
     let state = test_state();
-    state.auth.sessions.write().await.extend(HashMap::from([(
-        "test-session".to_string(),
-        LocalSession {
-            username: "admin".to_string(),
-            expires_at: chrono::Utc::now() + chrono::Duration::minutes(5),
-        },
-    )]));
+    insert_session(&state, "test-session").await;
     let response = routes::router(state)
         .oneshot(
             Request::post("/api/auth/logout")
@@ -73,22 +75,81 @@ async fn cookie_authenticated_mutation_requires_csrf_header() {
 #[tokio::test]
 async fn business_route_reports_stable_database_unavailable_code() {
     let state = test_state();
-    state.auth.sessions.write().await.insert(
-        "test-session".to_string(),
-        LocalSession {
-            username: "admin".to_string(),
-            expires_at: chrono::Utc::now() + chrono::Duration::minutes(5),
-        },
-    );
+    insert_session(&state, "test-session").await;
     let response = routes::router(state)
         .oneshot(
             Request::get("/api/blog/posts")
-                .header("authorization", "Bearer test-session")
+                .header("cookie", "session=test-session")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let payload: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await.unwrap()).unwrap();
+    assert_eq!(payload["code"], "database_unavailable");
+}
+
+#[tokio::test]
+async fn settings_database_route_remains_available_without_database() {
+    let state = test_state();
+    insert_session(&state, "test-session").await;
+    let response = routes::router(state)
+        .oneshot(
+            Request::get("/api/settings/database")
+                .header("cookie", "session=test-session")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let payload: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await.unwrap()).unwrap();
+    assert_eq!(payload["connected"], false);
+    assert_eq!(payload["restart_required"], false);
+}
+
+#[tokio::test]
+async fn host_session_cookie_is_preferred_in_full_router() {
+    let state = test_state();
+    insert_session(&state, "secure-session").await;
+    let response = routes::router(state)
+        .oneshot(
+            Request::get("/api/auth/me")
+                .header(
+                    "cookie",
+                    "session=stale-session; __Host-session=secure-session",
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let payload: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await.unwrap()).unwrap();
+    assert_eq!(payload["username"], "admin");
+}
+
+#[tokio::test]
+async fn sse_ticket_reports_database_unavailable_during_bootstrap() {
+    let state = test_state();
+    insert_session(&state, "test-session").await;
+    let response = routes::router(state)
+        .oneshot(
+            Request::post("/api/events/ticket")
+                .header("cookie", "session=test-session")
+                .header("x-csrf-token", "1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     let payload: serde_json::Value =
         serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await.unwrap()).unwrap();

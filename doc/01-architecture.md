@@ -88,7 +88,8 @@ union ──HTTPS API──> Sunshine / Proxmox VE
 | --- | --- | --- |
 | Union 管理员凭据 | `data/union-config.json`（0600） | 内存 bcrypt 校验数据 |
 | Union 登录会话 | 进程内存 | 重启后全部失效 |
-| 运行配置和外部凭据 | PostgreSQL 加密字段 | 内存配置、ram 私有 YAML |
+| 运行配置 | PostgreSQL 加密设置 | 内存配置、ram 私有 YAML |
+| Sunshine/Proxmox 主机 | PostgreSQL `external_hosts` | 内存主机快照 |
 | 博客文章和分类标签 | PostgreSQL | `data/blog/content/*` |
 | 博客静态资源 | `data/blog/files/` | `back/blog/dist/blog-assets/` |
 | 文件服务内容 | `data/ram/files/` | 无 |

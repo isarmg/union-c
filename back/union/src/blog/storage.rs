@@ -2,7 +2,7 @@
 
 use super::{orphans::safe_content_path, *};
 
-pub(super) async fn ensure_blog_seeded(state: &AppState) -> AppResult<()> {
+pub async fn ensure_blog_seeded(state: &AppState) -> AppResult<()> {
     // 只补齐数据库中缺失的 taxonomy 和首页配置。
     // 文件导出由写操作（save_post / delete_post / rewrite_all_posts / build_blog）显式触发。
     sync_taxonomy_from_posts(state).await?;
@@ -81,15 +81,73 @@ pub(super) async fn save_home_config_to_db(
 
 pub(super) async fn export_blog_content(state: &AppState) -> AppResult<()> {
     let content_dir = &state.settings.paths.blog_export_dir;
-    fs::create_dir_all(content_dir)?;
+    let parent = content_dir
+        .parent()
+        .ok_or_else(|| AppError::BadRequest("blog export directory has no parent".to_string()))?;
+    fs::create_dir_all(parent)?;
+    let directory_name = content_dir
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("content");
+    let staging = parent.join(format!(".{directory_name}.next.{}", Uuid::new_v4()));
+    fs::create_dir(&staging)?;
 
-    for record in database::list_blog_posts(state.db().as_ref()).await? {
-        export_post_record(content_dir, &record).await?;
+    let populate: AppResult<()> = async {
+        for record in database::list_blog_posts_with_content(state.db().as_ref()).await? {
+            export_post_record(&staging, &record).await?;
+        }
+        let registry = load_taxonomy_registry_from_db(state).await?;
+        save_taxonomy_registry(&staging, registry)?;
+        let config = home_config_from_db(state).await?;
+        save_home_config_file(&staging, &config)?;
+        Ok(())
     }
-    export_taxonomy_registry(state).await?;
-    let config = home_config_from_db(state).await?;
-    save_home_config_file(content_dir, &config)?;
+    .await;
+    if let Err(error) = populate {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+    replace_export_directory(content_dir, &staging)?;
 
+    Ok(())
+}
+
+fn replace_export_directory(content_dir: &Path, staging: &Path) -> AppResult<()> {
+    if let Ok(metadata) = fs::symlink_metadata(content_dir) {
+        if metadata.file_type().is_symlink() {
+            return Err(AppError::BadRequest(
+                "blog export directory must not be a symbolic link".to_string(),
+            ));
+        }
+        if !metadata.is_dir() {
+            return Err(AppError::BadRequest(
+                "blog export path exists but is not a directory".to_string(),
+            ));
+        }
+    }
+
+    let backup = content_dir.with_file_name(format!(
+        ".{}.previous.{}",
+        content_dir
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("content"),
+        Uuid::new_v4()
+    ));
+    let had_current = content_dir.exists();
+    if had_current {
+        fs::rename(content_dir, &backup)?;
+    }
+    if let Err(error) = fs::rename(staging, content_dir) {
+        if had_current {
+            let _ = fs::rename(&backup, content_dir);
+        }
+        let _ = fs::remove_dir_all(staging);
+        return Err(error.into());
+    }
+    if had_current {
+        fs::remove_dir_all(backup)?;
+    }
     Ok(())
 }
 
@@ -379,40 +437,29 @@ pub(super) fn sibling_work_path(path: &Path, label: &str) -> AppResult<PathBuf> 
     Ok(parent.join(format!(".{name}.{label}.{}", Uuid::new_v4())))
 }
 
-/// 把现有文件移到同一目录，后续 rename 可以保持原子性。
-pub(super) fn stage_existing_file(path: &Path) -> AppResult<Option<PathBuf>> {
-    if !path.exists() {
-        return Ok(None);
-    }
-    let backup = sibling_work_path(path, "backup")?;
-    fs::rename(path, &backup)?;
-    Ok(Some(backup))
-}
-
 pub(super) fn atomic_write_file(path: &Path, content: &[u8]) -> AppResult<()> {
+    use std::io::Write;
+
     let parent = path
         .parent()
         .ok_or_else(|| AppError::BadRequest("blog path has no parent".to_string()))?;
     fs::create_dir_all(parent)?;
     let temporary = sibling_work_path(path, "tmp")?;
-    if let Err(err) = fs::write(&temporary, content).and_then(|_| fs::rename(&temporary, path)) {
+    let write_result = (|| -> std::io::Result<()> {
+        let mut file = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temporary)?;
+        file.write_all(content)?;
+        file.sync_all()?;
+        fs::rename(&temporary, path)?;
+        fs::File::open(parent)?.sync_all()
+    })();
+    if let Err(err) = write_result {
         let _ = fs::remove_file(&temporary);
         return Err(err.into());
     }
     Ok(())
-}
-
-pub(super) fn restore_staged_file(path: &Path, backup: Option<&Path>) {
-    let _ = fs::remove_file(path);
-    if let Some(backup) = backup {
-        let _ = fs::rename(backup, path);
-    }
-}
-
-pub(super) fn discard_staged_file(backup: Option<&Path>) {
-    if let Some(backup) = backup {
-        let _ = fs::remove_file(backup);
-    }
 }
 
 pub(super) fn post_id_from_relative_path(relative_path: &str) -> String {
@@ -460,6 +507,19 @@ pub(super) fn validate_post_request(request: &BlogPostSaveRequest) -> AppResult<
         return Err(AppError::BadRequest(format!(
             "pubDate must be a valid date in YYYY-MM-DD format, got: {pub_date}"
         )));
+    }
+    if let Some(updated_date) = clean_optional(&request.updated_date)
+        && NaiveDate::parse_from_str(&updated_date, "%Y-%m-%d").is_err()
+    {
+        return Err(AppError::BadRequest(format!(
+            "updatedDate must be a valid date in YYYY-MM-DD format, got: {updated_date}"
+        )));
+    }
+    if let Some(category) = clean_optional(&request.category) {
+        normalize_taxonomy_name(&category, TaxonomyKind::Category.label())?;
+    }
+    for tag in normalize_list(request.tags.clone()) {
+        normalize_taxonomy_name(&tag, TaxonomyKind::Tag.label())?;
     }
     if !request.relative_path.ends_with(".md") && !request.relative_path.ends_with(".mdx") {
         return Err(AppError::BadRequest(
@@ -623,4 +683,62 @@ pub(super) fn is_post_path(path: &Path) -> bool {
         path.extension().and_then(|value| value.to_str()),
         Some("md" | "mdx")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn valid_request() -> BlogPostSaveRequest {
+        BlogPostSaveRequest {
+            original_relative_path: None,
+            relative_path: "posts/example.md".to_string(),
+            title: "Example".to_string(),
+            description: "Example description".to_string(),
+            pub_date: "2026-07-04".to_string(),
+            updated_date: None,
+            author: None,
+            category: Some("Engineering".to_string()),
+            series: None,
+            hero_image: None,
+            tags: vec!["Rust".to_string()],
+            draft: true,
+            featured: false,
+            content: "Body".to_string(),
+        }
+    }
+
+    #[test]
+    fn post_request_rejects_invalid_updated_date() {
+        let mut request = valid_request();
+        request.updated_date = Some("2026-99-99".to_string());
+
+        assert!(validate_post_request(&request).is_err());
+    }
+
+    #[test]
+    fn post_request_rejects_invalid_taxonomy_names() {
+        let mut request = valid_request();
+        request.category = Some("bad,category".to_string());
+        assert!(validate_post_request(&request).is_err());
+
+        request.category = Some("Engineering".to_string());
+        request.tags = vec!["bad\ntag".to_string()];
+        assert!(validate_post_request(&request).is_err());
+    }
+
+    #[test]
+    fn export_directory_cannot_be_symlink() {
+        let root = std::env::temp_dir().join(format!("union-export-test-{}", Uuid::new_v4()));
+        let actual = root.join("actual");
+        let content = root.join("content");
+        let staging = root.join("staging");
+        fs::create_dir_all(&actual).unwrap();
+        fs::create_dir_all(&staging).unwrap();
+        std::os::unix::fs::symlink(&actual, &content).unwrap();
+
+        assert!(replace_export_directory(&content, &staging).is_err());
+
+        fs::remove_dir_all(root).unwrap();
+    }
 }

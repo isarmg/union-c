@@ -63,6 +63,16 @@ pub(super) async fn create_host(
     hosts.push(new_host.clone());
     // 数据库成功后才发布内存快照；失败时 API 与运行状态保持一致。
     persist_registered_host(&state, &hosts, &new_host).await?;
+    database::insert_audit(
+        state.db().as_ref(),
+        "sunshine.host.create",
+        &new_host.id,
+        Some(&format!(
+            "name={} host={} port={} verify_tls={}",
+            new_host.name, new_host.host, new_host.web_port, new_host.verify_tls
+        )),
+    )
+    .await?;
     *state.hosts.sunshine.write().await = hosts;
     Ok(Json(info))
 }
@@ -104,6 +114,16 @@ pub(super) async fn update_host(
     let host_clone = host.clone(); // 克隆一份，用于后续的可达性检测（借用检查要求）
 
     persist_registered_host(&state, &hosts, &host_clone).await?;
+    database::insert_audit(
+        state.db().as_ref(),
+        "sunshine.host.update",
+        &host_clone.id,
+        Some(&format!(
+            "name={} host={} port={} verify_tls={}",
+            host_clone.name, host_clone.host, host_clone.web_port, host_clone.verify_tls
+        )),
+    )
+    .await?;
     *state.hosts.sunshine.write().await = hosts;
 
     // 写锁释放后再执行网络检测（避免持锁时间过长）
@@ -133,6 +153,13 @@ pub(super) async fn delete_host(
         return Err(AppError::BadRequest(format!("Sunshine 主机 '{id}' 不存在")));
     }
     persist_unregistered_host(&state, &hosts, &id).await?;
+    database::insert_audit(
+        state.db().as_ref(),
+        "sunshine.host.delete",
+        &id,
+        Some("host removed"),
+    )
+    .await?;
     *state.hosts.sunshine.write().await = hosts;
     Ok(axum::http::StatusCode::NO_CONTENT) // 删除成功返回 204 No Content
 }
@@ -154,7 +181,15 @@ pub(super) async fn host_wake(
     Path(id): Path<String>,
 ) -> AppResult<Json<WakeResponse>> {
     let host = find_host(&state, &id).await?;
-    Ok(Json(wol::wake_host(&host, state.db().as_ref()).await?))
+    let response = wol::wake_host(&host, state.db().as_ref()).await?;
+    database::insert_audit(
+        state.db().as_ref(),
+        "sunshine.host.wake",
+        &id,
+        Some(&format!("target={}", response.target)),
+    )
+    .await?;
+    Ok(Json(response))
 }
 
 /// 读取指定主机的 Sunshine 本地日志文件（从日志路径直接读取，不经过 Sunshine API）。

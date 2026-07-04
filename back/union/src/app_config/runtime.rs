@@ -98,6 +98,7 @@ pub fn save_local_config(config: &LocalConfig) -> anyhow::Result<()> {
     file.sync_all()?;
     fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))?;
     fs::rename(temporary, LOCAL_CONFIG_PATH)?;
+    fs::File::open("data")?.sync_all()?;
     Ok(())
 }
 

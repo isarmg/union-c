@@ -19,7 +19,7 @@ use axum::{
 };
 
 use crate::{
-    blog::{self, BlogPathQuery, PublishRequest},
+    blog::{self, BlogListQuery, BlogPathQuery, PublishRequest},
     domain::{
         BlogBulkEditResponse, BlogCreateTaxonomyRequest, BlogDeleteCategoryRequest,
         BlogDeleteTagRequest, BlogHomeConfig, BlogPostSaveRequest, BlogRenameRequest, LogsResponse,
@@ -39,6 +39,7 @@ pub(super) fn router() -> Router<AppState> {
         .route("/api/blog/home", get(home).post(save_home))
         .route("/api/blog/taxonomy", get(taxonomy))
         .route("/api/blog/build", post(build))
+        .route("/api/blog/import-orphans", post(import_orphans))
         .route("/api/blog/logs", get(logs))
         .route("/api/blog/publish", post(publish))
         .route("/api/blog/unpublish", post(unpublish))
@@ -50,12 +51,27 @@ pub(super) fn router() -> Router<AppState> {
         .route("/api/blog/categories/delete", post(delete_category))
 }
 
+pub(super) async fn import_orphans(
+    State(state): State<AppState>,
+) -> AppResult<Json<BlogBulkEditResponse>> {
+    let changed = blog::import_orphan_posts(&state).await?;
+    Ok(Json(BlogBulkEditResponse { changed }))
+}
+
 /// 列出所有博客文章（含草稿）。
 pub(super) async fn posts(
     State(state): State<AppState>,
+    Query(query): Query<BlogListQuery>,
 ) -> AppResult<Json<Vec<crate::domain::BlogPost>>> {
     // `Ok(Json(...))` 将 Rust 值包装为 JSON 响应，axum 会自动设置 Content-Type: application/json
-    Ok(Json(blog::list_posts(&state).await?))
+    Ok(Json(
+        blog::list_posts_page(
+            &state,
+            query.limit.unwrap_or(500),
+            query.offset.unwrap_or(0),
+        )
+        .await?,
+    ))
 }
 
 /// 获取单篇博客文章的详细内容（含正文 Markdown）。

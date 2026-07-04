@@ -3,11 +3,11 @@
 //! 这里集中处理会话认证、SSE 短效票据、数据库可用性检查和 Cookie CSRF 防护。
 //! 路由模块只负责请求解析和业务调用，不重复实现安全策略。
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::{
     extract::{Request, State},
-    http::{Method, header},
+    http::Method,
     middleware::Next,
     response::Response,
 };
@@ -15,6 +15,8 @@ use axum::{
 use crate::{database, error::AppError, state::AppState};
 
 use super::auth;
+
+const DATABASE_HEALTH_TTL: Duration = Duration::from_secs(1);
 
 pub(super) async fn require_auth(
     State(state): State<AppState>,
@@ -34,19 +36,11 @@ pub(super) async fn require_auth(
         return authenticate_sse(&state, &ticket, request, next).await;
     }
 
-    let bearer = request
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .map(str::to_owned);
-    let cookie = auth::session_cookie(request.headers());
-    let cookie_authenticated = bearer.is_none() && cookie.is_some();
-    let token = bearer.or(cookie).ok_or(AppError::Unauthorized)?;
+    let token = auth::session_cookie(request.headers()).ok_or(AppError::Unauthorized)?;
     let username = auth::local_session_user(&state, &token).await?;
 
     ensure_database_available(&state, path).await?;
-    ensure_csrf_protected(&request, cookie_authenticated)?;
+    ensure_csrf_protected(&request, true)?;
 
     let request_id = request
         .headers()
@@ -92,12 +86,31 @@ async fn authenticate_sse(
 }
 
 async fn ensure_database_available(state: &AppState, path: &str) -> Result<(), AppError> {
-    if requires_database(path) && database::ping(state.db().as_ref()).await.is_err() {
+    if requires_database(path) && !database_available(state).await {
         return Err(AppError::DatabaseUnavailable(
             "数据库未连接，请先在设置中配置数据库".to_string(),
         ));
     }
     Ok(())
+}
+
+async fn database_available(state: &AppState) -> bool {
+    let now = Instant::now();
+    {
+        let cached = state.database_health.lock().await;
+        if let Some(snapshot) = cached.as_ref()
+            && now.duration_since(snapshot.checked_at) < DATABASE_HEALTH_TTL
+        {
+            return snapshot.available;
+        }
+    }
+
+    let available = database::ping(state.db().as_ref()).await.is_ok();
+    *state.database_health.lock().await = Some(crate::state::DatabaseHealthSnapshot {
+        checked_at: Instant::now(),
+        available,
+    });
+    available
 }
 
 fn ensure_csrf_protected(request: &Request, cookie_authenticated: bool) -> Result<(), AppError> {

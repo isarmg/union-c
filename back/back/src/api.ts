@@ -49,40 +49,26 @@ import type {
   SunshineHostSaveRequest,
   SunshineStatus,
   SystemResources,
-  WakeResponse
-  , DatabaseConfigResponse
+  WakeResponse,
+  DatabaseConfigResponse
 } from "./types";
+import {
+  pathSegment,
+  pveHostPath,
+  pveNodePath,
+  pveSnapshotPath,
+  pveVmPath,
+  ramInstancePath,
+  sunshineHostPath
+} from "./api-paths";
 
 // 发送 JSON 请求体时使用的 HTTP 头。后端看到这个头后，会按 JSON 解析 body。
 const jsonHeaders = {
   "Content-Type": "application/json"
 };
 
-
 // 所有请求共用的超时时间。15 秒内没有响应就主动取消，避免页面一直转圈。
 const REQUEST_TIMEOUT_MS = 15_000;
-const SESSION_TOKEN_KEY = "union.session-token";
-
-function readSessionToken(): string | null {
-  try {
-    return window.sessionStorage.getItem(SESSION_TOKEN_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function writeSessionToken(token: string | null): void {
-  try {
-    if (token) {
-      window.sessionStorage.setItem(SESSION_TOKEN_KEY, token);
-    } else {
-      window.sessionStorage.removeItem(SESSION_TOKEN_KEY);
-    }
-  } catch {
-    // 禁用 Web Storage 时仍可继续使用服务端设置的 HttpOnly Cookie。
-  }
-}
-
 type ApiRequestInit = RequestInit & {
   timeoutMs?: number;
   suppressAuthExpired?: boolean;
@@ -125,7 +111,6 @@ async function request<T>(path: string, init?: ApiRequestInit): Promise<T> {
     // 有请求体时自动补 Content-Type: application/json，让后端知道 body 是 JSON 字符串。
     const shouldSendJsonHeader =
       Boolean(fetchInit.body) && !(fetchInit.body instanceof FormData);
-    const sessionToken = readSessionToken();
     response = await fetch(path, {
       ...fetchInit,
       credentials: "include",
@@ -135,7 +120,6 @@ async function request<T>(path: string, init?: ApiRequestInit): Promise<T> {
         ...(!fetchInit.method || ["GET", "HEAD", "OPTIONS"].includes(fetchInit.method.toUpperCase())
           ? undefined
           : { "X-CSRF-Token": "1" }),
-        ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : undefined),
         ...fetchInit.headers
       }
     });
@@ -157,7 +141,6 @@ async function request<T>(path: string, init?: ApiRequestInit): Promise<T> {
 
   // HTTP 状态码不是 2xx 时，fetch 本身不会抛错，需要我们手动判断。
   if (response.status === 401) {
-    writeSessionToken(null);
     if (!suppressAuthExpired) {
       window.dispatchEvent(new Event("union:auth-expired"));
     }
@@ -227,13 +210,12 @@ export const api = {
   },
   login: async (username: string, password: string) => {
     try {
-      const result = await request<{ username: string; token: string }>("/api/auth/login", {
+      const result = await request<{ username: string }>("/api/auth/login", {
         method: "POST",
         body: JSON.stringify({ username, password }),
         // 登录失败表示提交的凭据无效，不是已有会话过期；不要触发全局会话刷新。
         suppressAuthExpired: true
       });
-      writeSessionToken(result.token);
       return result;
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
@@ -268,15 +250,33 @@ export const api = {
       `/api/services/ram/entry?path=${encodeURIComponent(path)}`
     ),
   ramLogs: (lines = 300) =>
-    request<LogsResponse>(`/api/services/ram/logs?lines=${lines}`),
+    request<LogsResponse>(
+      `/api/services/ram/logs?lines=${encodeURIComponent(String(lines))}`
+    ),
   ramInstances: () => request<RamInstanceInfo[]>("/api/services/ram/instances"),
-  createRamInstance: (payload: RamInstanceSaveRequest) => request<RamInstanceInfo>("/api/services/ram/instances", { method: "POST", body: JSON.stringify(payload) }),
-  updateRamInstance: (id: string, payload: RamInstanceSaveRequest) => request<RamInstanceInfo>(`/api/services/ram/instances/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
-  deleteRamInstance: (id: string) => request<void>(`/api/services/ram/instances/${id}`, { method: "DELETE" }),
-  ramInstanceAuth: (id: string) => request<RamAuthResponse>(`/api/services/ram/instances/${id}/auth`),
-  updateRamInstanceAuth: (id: string, payload: RamAuthUpdateRequest) => request<RamAuthUpdateResponse>(`/api/services/ram/instances/${id}/auth`, { method: "POST", body: JSON.stringify(payload) }),
+  createRamInstance: (payload: RamInstanceSaveRequest) =>
+    request<RamInstanceInfo>("/api/services/ram/instances", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  updateRamInstance: (id: string, payload: RamInstanceSaveRequest) =>
+    request<RamInstanceInfo>(ramInstancePath(id), {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    }),
+  deleteRamInstance: (id: string) =>
+    request<void>(ramInstancePath(id), { method: "DELETE" }),
+  ramInstanceAuth: (id: string) =>
+    request<RamAuthResponse>(`${ramInstancePath(id)}/auth`),
+  updateRamInstanceAuth: (id: string, payload: RamAuthUpdateRequest) =>
+    request<RamAuthUpdateResponse>(`${ramInstancePath(id)}/auth`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   blogLogs: (lines = 300) =>
-    request<LogsResponse>(`/api/blog/logs?lines=${lines}`),
+    request<LogsResponse>(
+      `/api/blog/logs?lines=${encodeURIComponent(String(lines))}`
+    ),
 
   // Sunshine 多主机管理 — CRUD。
   sunshineHosts: () =>
@@ -287,70 +287,72 @@ export const api = {
       body: JSON.stringify(req)
     }),
   sunshineUpdateHost: (id: string, req: SunshineHostSaveRequest) =>
-    request<SunshineHostInfo>(`/api/services/sunshine/hosts/${id}`, {
+    request<SunshineHostInfo>(sunshineHostPath(id), {
       method: "PUT",
       body: JSON.stringify(req)
     }),
   sunshineDeleteHost: (id: string) =>
-    request<void>(`/api/services/sunshine/hosts/${id}`, { method: "DELETE" }),
+    request<void>(sunshineHostPath(id), { method: "DELETE" }),
 
   // Sunshine 多主机管理 — 单主机状态、WOL、日志。
   sunshineHostStatus: (id: string) =>
-    request<SunshineStatus>(`/api/services/sunshine/hosts/${id}/status`),
+    request<SunshineStatus>(`${sunshineHostPath(id)}/status`),
   sunshineHostWake: (id: string) =>
-    request<WakeResponse>(`/api/services/sunshine/hosts/${id}/wake`, { method: "POST" }),
+    request<WakeResponse>(`${sunshineHostPath(id)}/wake`, { method: "POST" }),
   sunshineHostLogs: (id: string, lines = 300) =>
-    request<LogsResponse>(`/api/services/sunshine/hosts/${id}/logs?lines=${lines}`),
+    request<LogsResponse>(
+      `${sunshineHostPath(id)}/logs?lines=${encodeURIComponent(String(lines))}`
+    ),
 
   // Sunshine 多主机管理 — API 代理（应用）。
   sunshineApps: (id: string) =>
-    request<SunshineAppsResponse>(`/api/services/sunshine/hosts/${id}/apps`),
+    request<SunshineAppsResponse>(`${sunshineHostPath(id)}/apps`),
   sunshineSaveApp: (id: string, app: Partial<SunshineApp>) =>
-    request<unknown>(`/api/services/sunshine/hosts/${id}/apps`, {
+    request<unknown>(`${sunshineHostPath(id)}/apps`, {
       method: "POST", body: JSON.stringify(app)
     }),
   sunshineCloseApp: (id: string) =>
-    request<unknown>(`/api/services/sunshine/hosts/${id}/apps/close`, { method: "POST" }),
+    request<unknown>(`${sunshineHostPath(id)}/apps/close`, { method: "POST" }),
   sunshineDeleteApp: (id: string, index: number) =>
-    request<unknown>(`/api/services/sunshine/hosts/${id}/apps/${index}`, { method: "DELETE" }),
+    request<unknown>(`${sunshineHostPath(id)}/apps/${pathSegment(index)}`, { method: "DELETE" }),
 
   // Sunshine 多主机管理 — API 代理（客户端）。
   sunshineClients: (id: string) =>
-    request<SunshineClientsResponse>(`/api/services/sunshine/hosts/${id}/clients`),
+    request<SunshineClientsResponse>(`${sunshineHostPath(id)}/clients`),
   sunshineUnpairClient: (id: string, uuid: string) =>
-    request<unknown>(`/api/services/sunshine/hosts/${id}/clients/unpair`, {
+    request<unknown>(`${sunshineHostPath(id)}/clients/unpair`, {
       method: "POST", body: JSON.stringify({ uuid })
     }),
   sunshineUnpairAll: (id: string) =>
-    request<unknown>(`/api/services/sunshine/hosts/${id}/clients/unpair-all`, { method: "POST" }),
+    request<unknown>(`${sunshineHostPath(id)}/clients/unpair-all`, { method: "POST" }),
   sunshineUpdateClient: (id: string, uuid: string, enabled: boolean) =>
-    request<unknown>(`/api/services/sunshine/hosts/${id}/clients/update`, {
+    request<unknown>(`${sunshineHostPath(id)}/clients/update`, {
       method: "POST", body: JSON.stringify({ uuid, enabled })
     }),
 
   // Sunshine 多主机管理 — API 代理（配置）。
   sunshineConfig: (id: string) =>
-    request<SunshineConfig>(`/api/services/sunshine/hosts/${id}/config`),
+    request<SunshineConfig>(`${sunshineHostPath(id)}/config`),
   sunshineSaveConfig: (id: string, config: SunshineConfig) =>
-    request<unknown>(`/api/services/sunshine/hosts/${id}/config`, {
+    request<unknown>(`${sunshineHostPath(id)}/config`, {
       method: "POST", body: JSON.stringify(config)
     }),
 
   // Sunshine 多主机管理 — API 代理（系统）。
   sunshineApiLogs: (id: string) =>
-    request<SunshineApiLogsResponse>(`/api/services/sunshine/hosts/${id}/api-logs`),
+    request<SunshineApiLogsResponse>(`${sunshineHostPath(id)}/api-logs`),
   sunshinePin: (id: string, pin: string, name: string) =>
-    request<unknown>(`/api/services/sunshine/hosts/${id}/pin`, {
+    request<unknown>(`${sunshineHostPath(id)}/pin`, {
       method: "POST", body: JSON.stringify({ pin, name })
     }),
   sunshineChangePassword: (id: string, payload: Record<string, string>) =>
-    request<unknown>(`/api/services/sunshine/hosts/${id}/password`, {
+    request<unknown>(`${sunshineHostPath(id)}/password`, {
       method: "POST", body: JSON.stringify(payload)
     }),
   sunshineRestart: (id: string) =>
-    request<unknown>(`/api/services/sunshine/hosts/${id}/restart`, { method: "POST" }),
+    request<unknown>(`${sunshineHostPath(id)}/restart`, { method: "POST" }),
   sunshineResetDisplay: (id: string) =>
-    request<unknown>(`/api/services/sunshine/hosts/${id}/reset-display`, { method: "POST" }),
+    request<unknown>(`${sunshineHostPath(id)}/reset-display`, { method: "POST" }),
   // 博客内容管理。这里的 path 都会 encodeURIComponent，避免中文、空格、斜杠等字符破坏 URL。
   blogPosts: () => request<BlogPost[]>("/api/blog/posts"),
   blogPostDetail: (path: string) =>
@@ -427,108 +429,151 @@ export const api = {
   // Proxmox VE 多主机管理。
   pveHosts: () => request<PveHostInfo[]>("/api/pve/hosts"),
   pveCreateHost: (req: PveHostSaveRequest) =>
-    request<PveHostInfo>("/api/pve/hosts", { method: "POST", body: JSON.stringify(req) }),
+    request<PveHostInfo>("/api/pve/hosts", {
+      method: "POST",
+      body: JSON.stringify(req)
+    }),
   pveUpdateHost: (id: string, req: PveHostSaveRequest) =>
-    request<PveHostInfo>(`/api/pve/hosts/${id}`, { method: "PUT", body: JSON.stringify(req) }),
+    request<PveHostInfo>(pveHostPath(id), {
+      method: "PUT",
+      body: JSON.stringify(req)
+    }),
   pveDeleteHost: (id: string) =>
-    request<void>(`/api/pve/hosts/${id}`, { method: "DELETE" }),
+    request<void>(pveHostPath(id), { method: "DELETE" }),
 
   pveResources: (id: string) =>
-    request<PveResource[]>(`/api/pve/hosts/${id}/resources`),
+    request<PveResource[]>(`${pveHostPath(id)}/resources`),
   pveNodes: (id: string) =>
-    request<PveNodeInfo[]>(`/api/pve/hosts/${id}/nodes`),
+    request<PveNodeInfo[]>(`${pveHostPath(id)}/nodes`),
   pveTasks: (id: string) =>
-    request<PveTaskInfo[]>(`/api/pve/hosts/${id}/tasks`),
+    request<PveTaskInfo[]>(`${pveHostPath(id)}/tasks`),
 
   pveNodeStatus: (id: string, node: string) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/status`),
+    request<unknown>(`${pveNodePath(id, node)}/status`),
   pveNodeStorage: (id: string, node: string) =>
-    request<PveStorageInfo[]>(`/api/pve/hosts/${id}/nodes/${node}/storage`),
+    request<PveStorageInfo[]>(`${pveNodePath(id, node)}/storage`),
   pveStorageContent: (id: string, node: string, storage: string) =>
-    request<PveContentItem[]>(`/api/pve/hosts/${id}/nodes/${node}/storage/${storage}/content`),
+    request<PveContentItem[]>(
+      `${pveNodePath(id, node)}/storage/${pathSegment(storage)}/content`
+    ),
   pveNodeTasks: (id: string, node: string) =>
-    request<PveTaskInfo[]>(`/api/pve/hosts/${id}/nodes/${node}/tasks`),
+    request<PveTaskInfo[]>(`${pveNodePath(id, node)}/tasks`),
 
   // VM (QEMU) 操作。
   pveVms: (id: string, node: string) =>
-    request<PveResource[]>(`/api/pve/hosts/${id}/nodes/${node}/vms`),
+    request<PveResource[]>(`${pveNodePath(id, node)}/vms`),
   pveVmStatus: (id: string, node: string, vmid: number) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/vms/${vmid}/status`),
+    request<unknown>(`${pveVmPath(id, node, vmid, "vms")}/status`),
   pveVmConfig: (id: string, node: string, vmid: number) =>
-    request<Record<string, unknown>>(`/api/pve/hosts/${id}/nodes/${node}/vms/${vmid}/config`),
+    request<Record<string, unknown>>(
+      `${pveVmPath(id, node, vmid, "vms")}/config`
+    ),
   pveVmStart: (id: string, node: string, vmid: number) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/vms/${vmid}/start`, { method: "POST" }),
+    request<unknown>(`${pveVmPath(id, node, vmid, "vms")}/start`, {
+      method: "POST"
+    }),
   pveVmStop: (id: string, node: string, vmid: number) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/vms/${vmid}/stop`, { method: "POST" }),
+    request<unknown>(`${pveVmPath(id, node, vmid, "vms")}/stop`, {
+      method: "POST"
+    }),
   pveVmShutdown: (id: string, node: string, vmid: number) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/vms/${vmid}/shutdown`, { method: "POST" }),
+    request<unknown>(`${pveVmPath(id, node, vmid, "vms")}/shutdown`, {
+      method: "POST"
+    }),
   pveVmReboot: (id: string, node: string, vmid: number) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/vms/${vmid}/reboot`, { method: "POST" }),
+    request<unknown>(`${pveVmPath(id, node, vmid, "vms")}/reboot`, {
+      method: "POST"
+    }),
   pveVmSuspend: (id: string, node: string, vmid: number) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/vms/${vmid}/suspend`, { method: "POST" }),
+    request<unknown>(`${pveVmPath(id, node, vmid, "vms")}/suspend`, {
+      method: "POST"
+    }),
   pveVmResume: (id: string, node: string, vmid: number) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/vms/${vmid}/resume`, { method: "POST" }),
+    request<unknown>(`${pveVmPath(id, node, vmid, "vms")}/resume`, {
+      method: "POST"
+    }),
   pveVmReset: (id: string, node: string, vmid: number) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/vms/${vmid}/reset`, { method: "POST" }),
+    request<unknown>(`${pveVmPath(id, node, vmid, "vms")}/reset`, {
+      method: "POST"
+    }),
   pveVmDelete: (id: string, node: string, vmid: number, purge = false) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/vms/${vmid}?purge=${purge ? "true" : "false"}`, { method: "DELETE" }),
+    request<unknown>(
+      `${pveVmPath(id, node, vmid, "vms")}?purge=${purge ? "true" : "false"}`,
+      { method: "DELETE" }
+    ),
   pveVmMigrate: (id: string, node: string, vmid: number, req: PveMigrateRequest) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/vms/${vmid}/migrate`, {
-      method: "POST", body: JSON.stringify(req)
+    request<unknown>(`${pveVmPath(id, node, vmid, "vms")}/migrate`, {
+      method: "POST",
+      body: JSON.stringify(req)
     }),
   pveVmSnapshots: (id: string, node: string, vmid: number) =>
-    request<PveSnapshot[]>(`/api/pve/hosts/${id}/nodes/${node}/vms/${vmid}/snapshots`),
+    request<PveSnapshot[]>(`${pveVmPath(id, node, vmid, "vms")}/snapshots`),
   pveVmSnapshotCreate: (id: string, node: string, vmid: number, req: PveSnapshotRequest) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/vms/${vmid}/snapshots`, {
-      method: "POST", body: JSON.stringify(req)
+    request<unknown>(`${pveVmPath(id, node, vmid, "vms")}/snapshots`, {
+      method: "POST",
+      body: JSON.stringify(req)
     }),
   pveVmSnapshotDelete: (id: string, node: string, vmid: number, snap: string) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/vms/${vmid}/snapshots/${snap}`, { method: "DELETE" }),
+    request<unknown>(pveSnapshotPath(id, node, vmid, "vms", snap), {
+      method: "DELETE"
+    }),
   pveVmSnapshotRollback: (id: string, node: string, vmid: number, snap: string) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/vms/${vmid}/snapshots/${snap}/rollback`, { method: "POST" }),
+    request<unknown>(
+      `${pveSnapshotPath(id, node, vmid, "vms", snap)}/rollback`,
+      { method: "POST" }
+    ),
 
   // Container (LXC) 操作。
   pveContainers: (id: string, node: string) =>
-    request<PveResource[]>(`/api/pve/hosts/${id}/nodes/${node}/containers`),
+    request<PveResource[]>(`${pveNodePath(id, node)}/containers`),
   pveCtStatus: (id: string, node: string, vmid: number) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/containers/${vmid}/status`),
+    request<unknown>(`${pveVmPath(id, node, vmid, "containers")}/status`),
   pveCtConfig: (id: string, node: string, vmid: number) =>
-    request<Record<string, unknown>>(`/api/pve/hosts/${id}/nodes/${node}/containers/${vmid}/config`),
+    request<Record<string, unknown>>(
+      `${pveVmPath(id, node, vmid, "containers")}/config`
+    ),
   pveCtStart: (id: string, node: string, vmid: number) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/containers/${vmid}/start`, { method: "POST" }),
+    request<unknown>(`${pveVmPath(id, node, vmid, "containers")}/start`, {
+      method: "POST"
+    }),
   pveCtStop: (id: string, node: string, vmid: number) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/containers/${vmid}/stop`, { method: "POST" }),
+    request<unknown>(`${pveVmPath(id, node, vmid, "containers")}/stop`, {
+      method: "POST"
+    }),
   pveCtShutdown: (id: string, node: string, vmid: number) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/containers/${vmid}/shutdown`, { method: "POST" }),
+    request<unknown>(`${pveVmPath(id, node, vmid, "containers")}/shutdown`, {
+      method: "POST"
+    }),
   pveCtReboot: (id: string, node: string, vmid: number) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/containers/${vmid}/reboot`, { method: "POST" }),
+    request<unknown>(`${pveVmPath(id, node, vmid, "containers")}/reboot`, {
+      method: "POST"
+    }),
   pveCtDelete: (id: string, node: string, vmid: number) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/containers/${vmid}`, { method: "DELETE" }),
+    request<unknown>(pveVmPath(id, node, vmid, "containers"), {
+      method: "DELETE"
+    }),
   pveCtSnapshots: (id: string, node: string, vmid: number) =>
-    request<PveSnapshot[]>(`/api/pve/hosts/${id}/nodes/${node}/containers/${vmid}/snapshots`),
+    request<PveSnapshot[]>(`${pveVmPath(id, node, vmid, "containers")}/snapshots`),
   pveCtSnapshotCreate: (id: string, node: string, vmid: number, req: PveSnapshotRequest) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/containers/${vmid}/snapshots`, {
-      method: "POST", body: JSON.stringify(req)
+    request<unknown>(`${pveVmPath(id, node, vmid, "containers")}/snapshots`, {
+      method: "POST",
+      body: JSON.stringify(req)
     }),
   pveCtSnapshotDelete: (id: string, node: string, vmid: number, snap: string) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/containers/${vmid}/snapshots/${snap}`, { method: "DELETE" }),
+    request<unknown>(pveSnapshotPath(id, node, vmid, "containers", snap), {
+      method: "DELETE"
+    }),
   pveCtSnapshotRollback: (id: string, node: string, vmid: number, snap: string) =>
-    request<unknown>(`/api/pve/hosts/${id}/nodes/${node}/containers/${vmid}/snapshots/${snap}/rollback`, { method: "POST" }),
+    request<unknown>(
+      `${pveSnapshotPath(id, node, vmid, "containers", snap)}/rollback`,
+      { method: "POST" }
+    ),
 
   // 认证与账号管理。
   logout: async () => {
-    try {
-      await request<void>("/api/auth/logout", { method: "POST" });
-    } finally {
-      writeSessionToken(null);
-    }
+    await request<void>("/api/auth/logout", { method: "POST" });
   },
-  me: () => {
-    if (!readSessionToken()) {
-      return Promise.reject(new Error("尚未登录"));
-    }
-    return request<{ username: string }>("/api/auth/me");
-  },
+  me: () => request<{ username: string }>("/api/auth/me"),
   changePassword: (current_password: string, new_password: string) =>
     request<void>("/api/auth/change-password", {
       method: "POST",

@@ -201,7 +201,7 @@ function DatabaseSection() {
 
   return (
     <section className="section-band">
-      <SectionHeader icon={Settings} title="数据库连接" description="连接测试和初始化成功后写入本地私有配置，并立即切换当前连接。" />
+      <SectionHeader icon={Settings} title="数据库连接" description="连接测试和初始化成功后写入本地私有配置，重启 Union 后生效。" />
       <div className="content-grid settings-grid">
         <form
           className="content-card database-card"
@@ -286,7 +286,7 @@ function DatabaseSection() {
         {databaseQuery.isError && <InlineNotice tone="danger" text={databaseQuery.error.message} />}
         {databaseQuery.data && <InlineNotice tone="warn"
           text={databaseQuery.data.connected ? "数据库已连接" : databaseQuery.data.configured ? "配置已保存，当前进程尚未连接" : "尚未配置数据库"} />}
-        {saveMutation.isSuccess && <InlineNotice tone="warn" text="连接测试通过，配置已保存并立即生效。" />}
+        {saveMutation.isSuccess && <InlineNotice tone="warn" text="连接测试通过，配置已保存；重启 Union 后生效。" />}
       </div>
     </section>
   );

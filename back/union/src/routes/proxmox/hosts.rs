@@ -125,7 +125,8 @@ pub(super) async fn node_status(
     Path(p): Path<NodePath>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
-    let data = proxmox::get(&host, &format!("nodes/{}/status", p.node)).await?;
+    let node = validate_node(&p.node)?;
+    let data = proxmox::get(&host, &format!("nodes/{node}/status")).await?;
     Ok(Json(data))
 }
 
@@ -134,7 +135,8 @@ pub(super) async fn node_storage(
     Path(p): Path<NodePath>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
-    let data = proxmox::get(&host, &format!("nodes/{}/storage", p.node)).await?;
+    let node = validate_node(&p.node)?;
+    let data = proxmox::get(&host, &format!("nodes/{node}/storage")).await?;
     Ok(Json(data))
 }
 
@@ -143,11 +145,9 @@ pub(super) async fn storage_content(
     Path(p): Path<StoragePath>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
-    let data = proxmox::get(
-        &host,
-        &format!("nodes/{}/storage/{}/content", p.node, p.storage),
-    )
-    .await?;
+    let node = validate_node(&p.node)?;
+    let storage = validate_storage(&p.storage)?;
+    let data = proxmox::get(&host, &format!("nodes/{node}/storage/{storage}/content")).await?;
     Ok(Json(data))
 }
 
@@ -156,6 +156,7 @@ pub(super) async fn node_tasks(
     Path(p): Path<NodePath>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
-    let data = proxmox::get(&host, &format!("nodes/{}/tasks", p.node)).await?;
+    let node = validate_node(&p.node)?;
+    let data = proxmox::get(&host, &format!("nodes/{node}/tasks")).await?;
     Ok(Json(data))
 }

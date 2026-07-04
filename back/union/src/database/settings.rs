@@ -60,64 +60,130 @@ pub async fn load_or_seed_app_settings(
 
         // 数据库连接配置始终来自启动参数，不从数据库读取
         settings.database = bootstrap.database.clone();
+        let loaded_normalized_hosts = load_external_hosts(pool, &mut settings).await?;
+        if !loaded_normalized_hosts
+            && (!settings.proxmox.hosts.is_empty() || !settings.sunshine.hosts.is_empty())
+        {
+            // 首次运行 v2 存储结构时，把旧配置包中的主机拆到结构化表。
+            save_app_settings(pool, &settings).await?;
+        }
         return Ok(settings);
     }
 
     // 首次运行：把 bootstrap 配置序列化为 JSON 并写入数据库
     // `serde_json::to_string_pretty` 生成格式化（有缩进）的 JSON，便于人工查看和调试
-    let value = serde_json::to_string_pretty(bootstrap)
-        .map_err(|err| anyhow::anyhow!("failed to serialize app runtime settings: {err}"))?;
-    set_setting(pool, APP_SETTINGS_KEY, &crate::secrets::encrypt(&value)?).await?;
+    save_app_settings(pool, bootstrap).await?;
     Ok(bootstrap.clone())
 }
 
-/// 原子保存运行配置并注册主机地址，避免一项成功、另一项失败。
-pub async fn save_app_settings_and_register_host(
-    pool: &DbPool,
-    settings: &Settings,
-    kind: &str,
-    id: &str,
-    address: &str,
-) -> anyhow::Result<()> {
-    let value = encrypted_app_settings(settings)?;
+/// 保存运行配置。外部主机公开字段结构化存储，密码和 Token 单独加密。
+pub async fn save_app_settings(pool: &DbPool, settings: &Settings) -> anyhow::Result<()> {
+    let mut base_settings = settings.clone();
+    let proxmox_hosts = std::mem::take(&mut base_settings.proxmox.hosts);
+    let sunshine_hosts = std::mem::take(&mut base_settings.sunshine.hosts);
+    let value = encrypted_app_settings(&base_settings)?;
     let mut tx = pool.begin().await?;
     upsert_setting(&mut tx, APP_SETTINGS_KEY, &value).await?;
-    query(
-        "INSERT INTO managed_host_addresses(kind,host_id,address) VALUES($1,$2,$3) \
-         ON CONFLICT(kind,host_id) DO UPDATE SET address=EXCLUDED.address,updated_at=NOW()",
-    )
-    .bind(kind)
-    .bind(id)
-    .bind(address)
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    Ok(())
-}
-
-/// 原子保存运行配置并移除主机地址。
-pub async fn save_app_settings_and_unregister_host(
-    pool: &DbPool,
-    settings: &Settings,
-    kind: &str,
-    id: &str,
-) -> anyhow::Result<()> {
-    let value = encrypted_app_settings(settings)?;
-    let mut tx = pool.begin().await?;
-    upsert_setting(&mut tx, APP_SETTINGS_KEY, &value).await?;
-    query("DELETE FROM managed_host_addresses WHERE kind=$1 AND host_id=$2")
-        .bind(kind)
-        .bind(id)
+    query("DELETE FROM external_hosts WHERE kind IN ('proxmox', 'sunshine')")
         .execute(&mut *tx)
         .await?;
+
+    for mut host in proxmox_hosts {
+        let address = std::mem::take(&mut host.host);
+        let secret = std::mem::take(&mut host.token_secret);
+        insert_external_host(
+            &mut tx,
+            "proxmox",
+            &host.id,
+            &address,
+            &serde_json::to_string(&host)?,
+            &secret,
+        )
+        .await?;
+    }
+    for mut host in sunshine_hosts {
+        let address = std::mem::take(&mut host.host);
+        let secret = std::mem::take(&mut host.password);
+        insert_external_host(
+            &mut tx,
+            "sunshine",
+            &host.id,
+            &address,
+            &serde_json::to_string(&host)?,
+            &secret,
+        )
+        .await?;
+    }
     tx.commit().await?;
     Ok(())
 }
 
 fn encrypted_app_settings(settings: &Settings) -> anyhow::Result<String> {
-    let value = serde_json::to_string_pretty(settings)
+    let value = serde_json::to_string(settings)
         .map_err(|err| anyhow::anyhow!("failed to serialize app settings: {err}"))?;
     crate::secrets::encrypt(&value)
+}
+
+async fn insert_external_host(
+    connection: &mut PgConnection,
+    kind: &str,
+    id: &str,
+    address: &str,
+    config: &str,
+    secret: &str,
+) -> anyhow::Result<()> {
+    let secret = (!secret.is_empty())
+        .then(|| crate::secrets::encrypt(secret))
+        .transpose()?;
+    query("INSERT INTO external_hosts(kind,host_id,address,config,secret) VALUES($1,$2,$3,$4,$5)")
+        .bind(kind)
+        .bind(id)
+        .bind(address)
+        .bind(config)
+        .bind(secret)
+        .execute(connection)
+        .await?;
+    Ok(())
+}
+
+async fn load_external_hosts(pool: &DbPool, settings: &mut Settings) -> anyhow::Result<bool> {
+    let rows =
+        query("SELECT kind,address,config,secret FROM external_hosts ORDER BY created_at,host_id")
+            .fetch_all(pool)
+            .await?;
+    if rows.is_empty() {
+        return Ok(false);
+    }
+
+    settings.proxmox.hosts.clear();
+    settings.sunshine.hosts.clear();
+    for row in rows {
+        let kind: String = row.try_get("kind")?;
+        let address: String = row.try_get("address")?;
+        let config: String = row.try_get("config")?;
+        let secret = row
+            .try_get::<Option<String>, _>("secret")?
+            .map(|value| crate::secrets::decrypt(&value))
+            .transpose()?
+            .unwrap_or_default();
+        match kind.as_str() {
+            "proxmox" => {
+                let mut host: crate::app_config::ProxmoxHostConfig = serde_json::from_str(&config)?;
+                host.host = address;
+                host.token_secret = secret;
+                settings.proxmox.hosts.push(host);
+            }
+            "sunshine" => {
+                let mut host: crate::app_config::SunshineHostConfig =
+                    serde_json::from_str(&config)?;
+                host.host = address;
+                host.password = secret;
+                settings.sunshine.hosts.push(host);
+            }
+            _ => anyhow::bail!("unsupported external host kind: {kind}"),
+        }
+    }
+    Ok(true)
 }
 
 /// 读取一个键值设置，返回 `Option<String>`（键不存在时返回 None）。

@@ -5,8 +5,7 @@ use super::{storage::*, *};
 /// 扫描内容目录，把不在数据库中的 .md/.mdx 文件以 draft=true 导入。
 /// 同时把这些文件重写一遍，确保磁盘上的 frontmatter 也是 draft: true。
 ///
-/// 在启动时和每次博客构建前调用，防止磁盘上存在数据库未跟踪的文章被 Astro
-/// 当作已发布内容构建进前台。
+/// 仅由显式导入接口调用；正常启动和构建始终以 PostgreSQL 为唯一管理源。
 pub async fn adopt_orphan_posts(state: &AppState) -> AppResult<usize> {
     let content_dir = &state.settings.paths.blog_export_dir;
     if !content_dir.exists() {
@@ -43,6 +42,8 @@ pub async fn adopt_orphan_posts(state: &AppState) -> AppResult<usize> {
 
         let mut request = parse_orphan_file(&raw, &relative);
         request.draft = true;
+        normalize_orphan_request(&mut request);
+        validate_post_request(&request)?;
 
         let input = post_input_from_request(&request);
         database::upsert_blog_post(state.db().as_ref(), &input).await?;
@@ -58,8 +59,6 @@ pub async fn adopt_orphan_posts(state: &AppState) -> AppResult<usize> {
             database::insert_blog_taxonomy(state.db().as_ref(), TaxonomyKind::Tag.db_kind(), tag)
                 .await?;
         }
-
-        export_post_request(content_dir, &request).await?;
 
         database::insert_audit(
             state.db().as_ref(),
@@ -155,6 +154,33 @@ fn parse_orphan_file(raw: &str, relative_path: &str) -> BlogPostSaveRequest {
     }
 
     request
+}
+
+fn normalize_orphan_request(request: &mut BlogPostSaveRequest) {
+    request.title = request.title.trim().to_string();
+    if request.title.is_empty() {
+        request.title = request
+            .relative_path
+            .trim_end_matches(".mdx")
+            .trim_end_matches(".md")
+            .to_string();
+    }
+
+    request.description = request.description.trim().to_string();
+    if request.description.is_empty() {
+        request.description = request.title.clone();
+    }
+
+    request.updated_date = clean_optional(&request.updated_date).and_then(|value| {
+        NaiveDate::parse_from_str(&value, "%Y-%m-%d")
+            .is_ok()
+            .then_some(value)
+    });
+    request.author = clean_optional(&request.author);
+    request.category = clean_optional(&request.category);
+    request.series = clean_optional(&request.series);
+    request.hero_image = clean_blog_asset_path(&request.hero_image);
+    request.tags = normalize_list(request.tags.clone());
 }
 
 /// 把 `---\nfrontmatter\n---\nbody` 拆成 (frontmatter, body)。
@@ -325,7 +351,7 @@ pub(super) fn safe_content_path(
 
 #[cfg(test)]
 mod path_tests {
-    use super::safe_content_path;
+    use super::{normalize_orphan_request, parse_orphan_file, safe_content_path};
     use std::{fs, os::unix::fs::symlink};
 
     #[test]
@@ -355,5 +381,27 @@ mod path_tests {
         assert!(safe_content_path(&root, "nested/valid.mdx", false).is_ok());
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn orphan_request_is_normalized_before_validation() {
+        let raw = r#"---
+title: "  "
+description: ""
+pubDate: invalid
+updatedDate: invalid
+tags: [" rust ", "rust"]
+---
+
+Body
+"#;
+        let mut request = parse_orphan_file(raw, "nested/draft.md");
+        normalize_orphan_request(&mut request);
+
+        assert_eq!(request.title, "nested/draft");
+        assert_eq!(request.description, "nested/draft");
+        assert_eq!(request.pub_date.len(), 10);
+        assert_eq!(request.updated_date, None);
+        assert_eq!(request.tags, vec!["rust"]);
     }
 }

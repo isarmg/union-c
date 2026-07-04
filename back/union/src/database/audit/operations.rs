@@ -64,23 +64,53 @@ pub async fn service_event(
     Ok(())
 }
 
-/// 删除超过保留期的操作历史，防止数据库无限增长。
-pub async fn prune_operational_history(pool: &DbPool, retention_days: i64) -> anyhow::Result<u64> {
+#[derive(Debug, Default)]
+pub struct PrunedOperationalHistory {
+    pub removed: u64,
+    pub log_paths: Vec<String>,
+}
+
+/// 删除超过保留期的操作历史，并返回需要同步删除的构建日志路径。
+pub async fn prune_operational_history(
+    pool: &DbPool,
+    retention_days: i64,
+) -> anyhow::Result<PrunedOperationalHistory> {
     let retention_days = retention_days.clamp(7, 3650);
+    let mut tx = pool.begin().await?;
+    let log_paths = query(
+        "SELECT log_path FROM jobs \
+         WHERE created_at < NOW() - ($1 * INTERVAL '1 day') AND log_path IS NOT NULL",
+    )
+    .bind(retention_days)
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .filter_map(|row| row.try_get::<Option<String>, _>("log_path").ok().flatten())
+    .collect();
     let mut removed = 0;
     for statement in [
         "DELETE FROM audit_logs WHERE created_at < NOW() - ($1 * INTERVAL '1 day')",
         "DELETE FROM service_events WHERE created_at < NOW() - ($1 * INTERVAL '1 day')",
-        "DELETE FROM job_logs WHERE job_id IN (SELECT id FROM jobs WHERE created_at < NOW() - ($1 * INTERVAL '1 day'))",
         "DELETE FROM jobs WHERE created_at < NOW() - ($1 * INTERVAL '1 day')",
     ] {
         removed += query(statement)
             .bind(retention_days)
-            .execute(pool)
+            .execute(&mut *tx)
             .await?
             .rows_affected();
     }
-    Ok(removed)
+    tx.commit().await?;
+    Ok(PrunedOperationalHistory { removed, log_paths })
+}
+
+/// 进程重启后，先前仍标记为 running 的任务已经不可能继续执行。
+pub async fn abandon_running_jobs(pool: &DbPool) -> anyhow::Result<u64> {
+    Ok(
+        query("UPDATE jobs SET status='abandoned', finished_at=NOW() WHERE status='running'")
+            .execute(pool)
+            .await?
+            .rows_affected(),
+    )
 }
 
 /// 更新服务的期望状态（desired state），用于持久化"用户希望服务处于什么状态"。

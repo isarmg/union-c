@@ -61,16 +61,21 @@ async fn request(
     path: &str,
     params: &[(&str, &str)],
 ) -> AppResult<Value> {
-    if path.split('/').any(|segment| {
-        matches!(segment, "." | "..") || segment.contains(['\\', '?', '#', '\r', '\n'])
-    }) {
+    let path = path.trim_matches('/');
+    if path.is_empty()
+        || path.split('/').any(|segment| {
+            segment.is_empty()
+                || matches!(segment, "." | "..")
+                || segment.contains(['\\', '?', '#', '\r', '\n', '\0'])
+        })
+    {
         return Err(AppError::BadRequest("invalid PVE API path".to_string()));
     }
     let url = format!(
         "https://{}:{}/api2/json/{}",
         network::url_host(&host.host),
         host.port,
-        path.trim_start_matches('/')
+        path
     );
     let auth = format!("PVEAPIToken={}={}", host.token_id, host.token_secret);
 

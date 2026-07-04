@@ -29,11 +29,11 @@ pub async fn list_blog_posts(pool: &DbPool) -> anyhow::Result<Vec<BlogPostRecord
             COALESCE(extension, 'md') AS extension,
             title,
             COALESCE(description, '') AS description,
-            COALESCE(content, '') AS content,
+            ''::TEXT AS content,
             draft,
             featured,
-            pub_date,
-            updated_date,
+            pub_date::TEXT AS pub_date,
+            updated_date::TEXT AS updated_date,
             author,
             category,
             series,
@@ -55,6 +55,74 @@ pub async fn list_blog_posts(pool: &DbPool) -> anyhow::Result<Vec<BlogPostRecord
         .collect() // `.collect()` 将迭代器收集为 `Vec<BlogPostRecord>`（或在遇到 Err 时提前返回）
 }
 
+pub async fn list_blog_posts_page(
+    pool: &DbPool,
+    limit: i64,
+    offset: i64,
+) -> anyhow::Result<Vec<BlogPostRecord>> {
+    let rows = query(
+        r#"
+        SELECT
+            id, relative_path, COALESCE(extension, 'md') AS extension,
+            title, COALESCE(description, '') AS description,
+            ''::TEXT AS content, draft, featured,
+            pub_date::TEXT AS pub_date, updated_date::TEXT AS updated_date,
+            author, category, series, hero_image,
+            to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at
+        FROM blog_posts
+        ORDER BY pub_date DESC, title ASC, relative_path ASC
+        LIMIT $1 OFFSET $2
+        "#,
+    )
+    .bind(limit.clamp(1, 500))
+    .bind(offset.max(0))
+    .fetch_all(pool)
+    .await?;
+    let tags = blog_post_tags_for_ids(
+        pool,
+        &rows
+            .iter()
+            .filter_map(|row| row.try_get::<String, _>("id").ok())
+            .collect::<Vec<_>>(),
+    )
+    .await?;
+    rows.into_iter()
+        .map(|row| blog_post_record_from_row(row, &tags))
+        .collect()
+}
+
+/// 列出全部文章并包含正文，仅供导出和批量改写使用。
+pub async fn list_blog_posts_with_content(pool: &DbPool) -> anyhow::Result<Vec<BlogPostRecord>> {
+    let rows = query(
+        r#"
+        SELECT
+            id,
+            relative_path,
+            COALESCE(extension, 'md') AS extension,
+            title,
+            COALESCE(description, '') AS description,
+            COALESCE(content, '') AS content,
+            draft,
+            featured,
+            pub_date::TEXT AS pub_date,
+            updated_date::TEXT AS updated_date,
+            author,
+            category,
+            series,
+            hero_image,
+            to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at
+        FROM blog_posts
+        ORDER BY pub_date DESC, title ASC, relative_path ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+    let tags = blog_post_tags(pool).await?;
+    rows.into_iter()
+        .map(|row| blog_post_record_from_row(row, &tags))
+        .collect()
+}
+
 /// 按相对路径读取单篇博客文章（含标签）。
 pub async fn blog_post_by_path(
     pool: &DbPool,
@@ -71,8 +139,8 @@ pub async fn blog_post_by_path(
             COALESCE(content, '') AS content,
             draft,
             featured,
-            pub_date,
-            updated_date,
+            pub_date::TEXT AS pub_date,
+            updated_date::TEXT AS updated_date,
             author,
             category,
             series,
@@ -130,14 +198,32 @@ pub async fn upsert_blog_post_from_path(
 ) -> anyhow::Result<()> {
     // `pool.begin()` 开启数据库事务，返回 `Transaction`
     let mut tx = pool.begin().await?;
+    upsert_blog_post_connection(&mut tx, post, original_relative_path).await?;
+    tx.commit().await?;
+    Ok(())
+}
 
+pub async fn upsert_blog_posts(pool: &DbPool, posts: &[BlogPostInput]) -> anyhow::Result<()> {
+    let mut tx = pool.begin().await?;
+    for post in posts {
+        upsert_blog_post_connection(&mut tx, post, None).await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn upsert_blog_post_connection(
+    connection: &mut PgConnection,
+    post: &BlogPostInput,
+    original_relative_path: Option<&str>,
+) -> anyhow::Result<()> {
     query(
         r#"
         INSERT INTO blog_posts (
             id, relative_path, extension, title, description, content,
             draft, featured, pub_date, updated_date, author, category, series, hero_image
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::DATE, $10::DATE, $11, $12, $13, $14)
         ON CONFLICT (id) DO UPDATE SET
             relative_path = EXCLUDED.relative_path,
             extension     = EXCLUDED.extension,
@@ -169,13 +255,13 @@ pub async fn upsert_blog_post_from_path(
     .bind(&post.category)
     .bind(&post.series)
     .bind(&post.hero_image)
-    .execute(&mut *tx) // `&mut *tx` 解引用 Transaction 获取数据库连接
+    .execute(&mut *connection)
     .await?;
 
     // 先删除文章的所有旧标签（简单粗暴，但避免了复杂的差量计算）
     query("DELETE FROM blog_post_tags WHERE post_id = $1")
         .bind(&post.id)
-        .execute(&mut *tx)
+        .execute(&mut *connection)
         .await?;
 
     // 对标签列表去重、去空白，再逐个插入
@@ -190,7 +276,7 @@ pub async fn upsert_blog_post_from_path(
         )
         .bind(&post.id)
         .bind(tag)
-        .execute(&mut *tx)
+        .execute(&mut *connection)
         .await?;
     }
 
@@ -201,7 +287,7 @@ pub async fn upsert_blog_post_from_path(
             "INSERT INTO blog_taxonomy (kind, name) VALUES ('category', $1) ON CONFLICT DO NOTHING",
         )
         .bind(category)
-        .execute(&mut *tx)
+        .execute(&mut *connection)
         .await?;
         for tag in &normalized_tags {
             query(
@@ -213,14 +299,14 @@ pub async fn upsert_blog_post_from_path(
             )
             .bind(category)
             .bind(tag)
-            .execute(&mut *tx)
+            .execute(&mut *connection)
             .await?;
         }
     }
     for tag in &normalized_tags {
         query("INSERT INTO blog_taxonomy (kind, name) VALUES ('tag', $1) ON CONFLICT DO NOTHING")
             .bind(tag)
-            .execute(&mut *tx)
+            .execute(&mut *connection)
             .await?;
     }
 
@@ -228,13 +314,10 @@ pub async fn upsert_blog_post_from_path(
         query("DELETE FROM blog_posts WHERE relative_path = $1 AND id <> $2")
             .bind(original)
             .bind(&post.id)
-            .execute(&mut *tx)
+            .execute(&mut *connection)
             .await?;
     }
 
-    // `tx.commit()` 提交事务，使所有更改永久生效
-    // 如果之前任何步骤出错并返回了 `?`，事务会在 `tx` 被 drop 时自动回滚
-    tx.commit().await?;
     Ok(())
 }
 
@@ -280,6 +363,29 @@ async fn blog_post_tags(pool: &DbPool) -> anyhow::Result<BTreeMap<String, Vec<St
         let tag: String = row.try_get("tag")?;
         // `entry(...).or_default()` 如果 key 不存在则插入空 Vec，返回可变引用
         output.entry(post_id).or_default().push(tag);
+    }
+    Ok(output)
+}
+
+async fn blog_post_tags_for_ids(
+    pool: &DbPool,
+    ids: &[String],
+) -> anyhow::Result<BTreeMap<String, Vec<String>>> {
+    if ids.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let rows = query(
+        "SELECT post_id, tag FROM blog_post_tags WHERE post_id = ANY($1) ORDER BY post_id, tag",
+    )
+    .bind(ids)
+    .fetch_all(pool)
+    .await?;
+    let mut output = BTreeMap::<String, Vec<String>>::new();
+    for row in rows {
+        output
+            .entry(row.try_get("post_id")?)
+            .or_default()
+            .push(row.try_get("tag")?);
     }
     Ok(output)
 }

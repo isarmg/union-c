@@ -1,6 +1,10 @@
 //! 有界日志尾部读取。
 
-use std::{fs, path::Path};
+use std::{
+    fs,
+    io::{Read, Seek, SeekFrom},
+    path::Path,
+};
 
 /// 读取日志文件最后 `max_lines` 行（类似 `tail -n` 命令的功能）。
 ///
@@ -9,39 +13,50 @@ use std::{fs, path::Path};
 /// 读入内存，会造成不必要的内存压力和延迟。
 /// 通常用户只关心最近发生的事情（最后几百行），所以只返回尾部即可。
 ///
-/// # 实现方式：滑动窗口（固定容量循环缓冲区）
-/// 使用 `VecDeque`（双端队列）作为固定大小的环形缓冲区：
-/// - 逐行读取文件，每读一行就加入队列尾部；
-/// - 如果队列已满（len >= max_lines），先从队列头部弹出最早的一行；
-/// - 读完整个文件后，队列里恰好保存的是最后 max_lines 行。
+/// # 实现方式：从文件尾部反向读取
+/// 按 8 KiB 块从末尾向前读取，直到找到足够多的换行符，再只解析尾部片段。
 ///
-/// 这种方式只需要 O(max_lines) 的内存，与文件总大小无关，
-/// 也不需要知道文件总行数，只需顺序读一遍。
+/// 这种方式的内存和耗时主要与需要返回的尾部内容相关，不随日志总大小线性增长。
 pub fn tail_lines(path: &Path, max_lines: usize) -> std::io::Result<Vec<String>> {
-    use std::collections::VecDeque;
-    use std::io::{BufRead, BufReader};
-
     if max_lines == 0 || !path.exists() {
         return Ok(Vec::new());
     }
 
-    // BufReader 为文件 I/O 添加用户空间缓冲区，避免每读一行都触发一次系统调用，
-    // 大幅提升逐行读取的性能。
-    let file = fs::File::open(path)?;
-    let reader = BufReader::new(file);
-    // with_capacity 预分配内存，避免滑动过程中频繁扩容。
-    // saturation_add 防止 max_lines + 1 溢出（usize 最大值时加 1 会回绕）。
-    let mut buf: VecDeque<String> = VecDeque::with_capacity(max_lines.saturating_add(1));
+    const CHUNK_SIZE: u64 = 8 * 1024;
 
-    for line in reader.lines() {
-        if buf.len() >= max_lines {
-            buf.pop_front(); // 满了就丢弃最早的一行，保持队列大小不超过 max_lines
-        }
-        buf.push_back(line?); // 追加新行到队尾
+    let mut file = fs::File::open(path)?;
+    let mut position = file.metadata()?.len();
+    if position == 0 {
+        return Ok(Vec::new());
     }
 
-    // VecDeque 转为 Vec，以便序列化或返回给调用方。
-    Ok(buf.into_iter().collect())
+    let mut retained = Vec::new();
+    let mut newline_count = 0_usize;
+    while position > 0 && newline_count <= max_lines {
+        let read_len = position.min(CHUNK_SIZE);
+        position -= read_len;
+        file.seek(SeekFrom::Start(position))?;
+
+        let mut chunk = vec![0_u8; read_len as usize];
+        file.read_exact(&mut chunk)?;
+        newline_count += chunk.iter().filter(|byte| **byte == b'\n').count();
+
+        let mut combined = Vec::with_capacity(chunk.len() + retained.len());
+        combined.extend_from_slice(&chunk);
+        combined.extend_from_slice(&retained);
+        retained = combined;
+    }
+
+    let text = String::from_utf8_lossy(&retained);
+    let mut lines = text.lines().map(ToOwned::to_owned).collect::<Vec<_>>();
+    if position > 0 && !lines.is_empty() {
+        lines.remove(0);
+    }
+    if lines.len() > max_lines {
+        Ok(lines.split_off(lines.len() - max_lines))
+    } else {
+        Ok(lines)
+    }
 }
 
 #[cfg(test)]
@@ -54,6 +69,37 @@ mod tail_tests {
         let path = std::env::temp_dir().join(format!("union-log-test-{}", uuid::Uuid::new_v4()));
         fs::write(&path, "one\ntwo\n").unwrap();
         assert!(tail_lines(&path, 0).unwrap().is_empty());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn returns_last_requested_lines() {
+        let path = std::env::temp_dir().join(format!("union-log-test-{}", uuid::Uuid::new_v4()));
+        fs::write(&path, "one\ntwo\nthree\nfour\n").unwrap();
+
+        assert_eq!(tail_lines(&path, 2).unwrap(), vec!["three", "four"]);
+        assert_eq!(
+            tail_lines(&path, 10).unwrap(),
+            vec!["one", "two", "three", "four"]
+        );
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn tails_large_files_without_reading_from_start() {
+        let path = std::env::temp_dir().join(format!("union-log-test-{}", uuid::Uuid::new_v4()));
+        let mut content = String::new();
+        for index in 0..20_000 {
+            content.push_str(&format!("line-{index}\n"));
+        }
+        fs::write(&path, content).unwrap();
+
+        assert_eq!(
+            tail_lines(&path, 3).unwrap(),
+            vec!["line-19997", "line-19998", "line-19999"]
+        );
+
         fs::remove_file(path).unwrap();
     }
 }

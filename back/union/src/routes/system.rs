@@ -51,12 +51,19 @@ pub(super) fn router() -> Router<AppState> {
 
 pub(super) async fn database_config(State(state): State<AppState>) -> Json<DatabaseConfigResponse> {
     let config = state.auth.local_config.read().await;
+    let active_url = if state.settings.database.url.trim().is_empty() {
+        config.database_url.clone()
+    } else {
+        state.settings.database.url.clone()
+    };
     let connected = crate::database::ping(state.db().as_ref()).await.is_ok();
+    let restart_required = !config.database_url.trim().is_empty()
+        && config.database_url != state.settings.database.url;
     Json(DatabaseConfigResponse {
-        configured: !config.database_url.trim().is_empty(),
-        database_url: redact_database_url(&config.database_url),
+        configured: !active_url.trim().is_empty(),
+        database_url: redact_database_url(&active_url),
         connected,
-        restart_required: false,
+        restart_required,
     })
 }
 
@@ -85,10 +92,7 @@ pub(super) async fn update_database_config(
     crate::database::migrate(&pool)
         .await
         .map_err(crate::error::AppError::Anyhow)?;
-    let loaded_settings = crate::database::load_or_seed_app_settings(&pool, &candidate)
-        .await
-        .map_err(crate::error::AppError::Anyhow)?;
-    crate::ram_auth::ensure_seeded(&pool, &loaded_settings)
+    let _loaded_settings = crate::database::load_or_seed_app_settings(&pool, &candidate)
         .await
         .map_err(crate::error::AppError::Anyhow)?;
 
@@ -97,15 +101,13 @@ pub(super) async fn update_database_config(
     crate::app_config::save_local_config(&config).map_err(crate::error::AppError::Anyhow)?;
     drop(config);
 
-    // 迁移和配置写入全部成功后再原子切换，失败不会破坏当前连接。
-    state.replace_db(pool);
-    *state.hosts.proxmox.write().await = loaded_settings.proxmox.hosts;
-    *state.hosts.sunshine.write().await = loaded_settings.sunshine.hosts;
+    // 数据库决定运行配置、主机和后台维护任务。进程内热切换会形成半更新状态，
+    // 因此这里只验证并保存连接，统一在下次启动时装载完整状态。
     Ok(Json(DatabaseConfigResponse {
         configured: true,
         database_url: redact_database_url(url),
-        connected: true,
-        restart_required: false,
+        connected: crate::database::ping(state.db().as_ref()).await.is_ok(),
+        restart_required: true,
     }))
 }
 
@@ -250,4 +252,55 @@ pub(super) async fn events(
         }
     };
     Sse::new(events).keep_alive(KeepAlive::default()) // 启用 SSE 心跳，防止连接超时断开
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        app_config::{LocalConfig, Settings},
+        database,
+        state::AppState,
+    };
+
+    fn state_with_database_urls(active_url: &str, local_url: &str) -> AppState {
+        let mut settings = Settings::default();
+        settings.database.url = active_url.to_string();
+        AppState::new(
+            settings,
+            database::disconnected_pool().expect("disconnected pool"),
+            "unused".to_string(),
+            LocalConfig {
+                database_url: local_url.to_string(),
+                admin_username: "admin".to_string(),
+                admin_password_hash: "unused".to_string(),
+            },
+        )
+    }
+
+    #[tokio::test]
+    async fn database_config_reports_active_environment_url() {
+        let state = state_with_database_urls("postgresql://union:secret@127.0.0.1:5432/union", "");
+
+        let Json(response) = database_config(State(state)).await;
+
+        assert!(response.configured);
+        assert_eq!(
+            response.database_url,
+            "postgresql://union:********@127.0.0.1:5432/union"
+        );
+        assert!(!response.restart_required);
+    }
+
+    #[tokio::test]
+    async fn saved_database_url_diff_requires_restart() {
+        let state = state_with_database_urls(
+            "postgresql://union:old@127.0.0.1:5432/union",
+            "postgresql://union:new@127.0.0.1:5432/union",
+        );
+
+        let Json(response) = database_config(State(state)).await;
+
+        assert!(response.restart_required);
+    }
 }

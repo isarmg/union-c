@@ -9,7 +9,8 @@ pub(super) async fn list_containers(
     Path(p): Path<NodePath>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
-    let data = proxmox::get(&host, &format!("nodes/{}/lxc", p.node)).await?;
+    let node = validate_node(&p.node)?;
+    let data = proxmox::get(&host, &format!("nodes/{node}/lxc")).await?;
     Ok(Json(data))
 }
 
@@ -18,11 +19,9 @@ pub(super) async fn ct_status(
     Path(p): Path<VmPath>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
-    let data = proxmox::get(
-        &host,
-        &format!("nodes/{}/lxc/{}/status/current", p.node, p.vmid),
-    )
-    .await?;
+    let node = validate_node(&p.node)?;
+    let vmid = validate_vmid(&p.vmid)?;
+    let data = proxmox::get(&host, &format!("nodes/{node}/lxc/{vmid}/status/current")).await?;
     Ok(Json(data))
 }
 
@@ -31,7 +30,9 @@ pub(super) async fn ct_config(
     Path(p): Path<VmPath>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
-    let data = proxmox::get(&host, &format!("nodes/{}/lxc/{}/config", p.node, p.vmid)).await?;
+    let node = validate_node(&p.node)?;
+    let vmid = validate_vmid(&p.vmid)?;
+    let data = proxmox::get(&host, &format!("nodes/{node}/lxc/{vmid}/config")).await?;
     Ok(Json(data))
 }
 
@@ -69,13 +70,15 @@ pub(super) async fn ct_delete(
     Query(q): Query<PveDeleteQuery>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
+    let node = validate_node(&p.node)?;
+    let vmid = validate_vmid(&p.vmid)?;
     let mut params: Vec<(&str, &str)> = Vec::new();
     let purge_str;
     if let Some(true) = q.purge {
         purge_str = "1".to_string();
         params.push(("purge", &purge_str));
     }
-    let data = proxmox::delete(&host, &format!("nodes/{}/lxc/{}", p.node, p.vmid), &params).await?;
+    let data = proxmox::delete(&host, &format!("nodes/{node}/lxc/{vmid}"), &params).await?;
     Ok(Json(data))
 }
 
@@ -84,7 +87,9 @@ pub(super) async fn ct_snapshots(
     Path(p): Path<VmPath>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
-    let data = proxmox::get(&host, &format!("nodes/{}/lxc/{}/snapshot", p.node, p.vmid)).await?;
+    let node = validate_node(&p.node)?;
+    let vmid = validate_vmid(&p.vmid)?;
+    let data = proxmox::get(&host, &format!("nodes/{node}/lxc/{vmid}/snapshot")).await?;
     Ok(Json(data))
 }
 
@@ -101,9 +106,12 @@ pub(super) async fn ct_snapshot_delete(
     Path(p): Path<SnapPath>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
+    let node = validate_node(&p.node)?;
+    let vmid = validate_vmid(&p.vmid)?;
+    let snap = validate_snapshot(&p.snap)?;
     let data = proxmox::delete(
         &host,
-        &format!("nodes/{}/lxc/{}/snapshot/{}", p.node, p.vmid, p.snap),
+        &format!("nodes/{node}/lxc/{vmid}/snapshot/{snap}"),
         &[],
     )
     .await?;
@@ -115,12 +123,12 @@ pub(super) async fn ct_snapshot_rollback(
     Path(p): Path<SnapPath>,
 ) -> AppResult<Json<Value>> {
     let host = find_host(&state, &p.id).await?;
+    let node = validate_node(&p.node)?;
+    let vmid = validate_vmid(&p.vmid)?;
+    let snap = validate_snapshot(&p.snap)?;
     let data = proxmox::post(
         &host,
-        &format!(
-            "nodes/{}/lxc/{}/snapshot/{}/rollback",
-            p.node, p.vmid, p.snap
-        ),
+        &format!("nodes/{node}/lxc/{vmid}/snapshot/{snap}/rollback"),
         &[],
     )
     .await?;

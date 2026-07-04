@@ -67,6 +67,79 @@ pub(super) fn validate_host_request(
     Ok(())
 }
 
+pub(super) fn validate_proxy_json_object(
+    label: &str,
+    value: &Value,
+    max_bytes: usize,
+) -> AppResult<()> {
+    if !value.is_object() {
+        return Err(AppError::BadRequest(format!(
+            "{label} must be a JSON object"
+        )));
+    }
+    let size = serde_json::to_vec(value)
+        .map_err(|err| AppError::BadRequest(format!("invalid {label}: {err}")))?
+        .len();
+    if size > max_bytes {
+        return Err(AppError::BadRequest(format!(
+            "{label} exceeds the maximum size of {} KiB",
+            max_bytes / 1024
+        )));
+    }
+    Ok(())
+}
+
+pub(super) fn validate_client_id(value: &str) -> AppResult<&str> {
+    validate_opaque_string("client uuid", value, 128)
+}
+
+pub(super) fn validate_pin_request(pin: &str, name: &str) -> AppResult<(String, String)> {
+    let pin = pin.trim();
+    if !(4..=8).contains(&pin.len()) || !pin.chars().all(|value| value.is_ascii_digit()) {
+        return Err(AppError::BadRequest(
+            "Sunshine PIN must be 4 to 8 digits".to_string(),
+        ));
+    }
+    let name = validate_opaque_string("client name", name, 80)?.to_string();
+    Ok((pin.to_string(), name))
+}
+
+pub(super) fn validate_cover_upload(key: &str, value: &str) -> AppResult<(String, String)> {
+    let key = validate_opaque_string("cover key", key, 512)?.to_string();
+    let value = value.trim();
+    if value.len() > 2048 {
+        return Err(AppError::BadRequest(
+            "cover URL cannot be longer than 2048 characters".to_string(),
+        ));
+    }
+    let parsed = url::Url::parse(value)
+        .map_err(|_| AppError::BadRequest("cover URL must be an absolute URL".to_string()))?;
+    match parsed.scheme() {
+        "http" | "https" if parsed.host_str().is_some() => Ok((key, parsed.to_string())),
+        _ => Err(AppError::BadRequest(
+            "cover URL must use http or https".to_string(),
+        )),
+    }
+}
+
+fn validate_opaque_string<'a>(label: &str, value: &'a str, max_chars: usize) -> AppResult<&'a str> {
+    if value.chars().any(char::is_control) {
+        return Err(AppError::BadRequest(format!(
+            "{label} cannot contain control characters"
+        )));
+    }
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(AppError::BadRequest(format!("{label} cannot be empty")));
+    }
+    if value.chars().count() > max_chars {
+        return Err(AppError::BadRequest(format!(
+            "{label} cannot be longer than {max_chars} characters"
+        )));
+    }
+    Ok(value)
+}
+
 // ─── 辅助：按 ID 查找主机 ─────────────────────────────────────────────────────
 
 /// 按主机 ID 查找 Sunshine 主机配置，找不到则返回 400 错误。
@@ -104,28 +177,20 @@ async fn settings_with_hosts(
 pub(super) async fn persist_registered_host(
     state: &AppState,
     hosts: &[SunshineHostConfig],
-    host: &SunshineHostConfig,
+    _host: &SunshineHostConfig,
 ) -> AppResult<()> {
     let settings = settings_with_hosts(state, hosts).await;
-    database::save_app_settings_and_register_host(
-        state.db().as_ref(),
-        &settings,
-        "sunshine",
-        &host.id,
-        &host.host,
-    )
-    .await?;
+    database::save_app_settings(state.db().as_ref(), &settings).await?;
     Ok(())
 }
 
 pub(super) async fn persist_unregistered_host(
     state: &AppState,
     hosts: &[SunshineHostConfig],
-    id: &str,
+    _id: &str,
 ) -> AppResult<()> {
     let settings = settings_with_hosts(state, hosts).await;
-    database::save_app_settings_and_unregister_host(state.db().as_ref(), &settings, "sunshine", id)
-        .await?;
+    database::save_app_settings(state.db().as_ref(), &settings).await?;
     Ok(())
 }
 
@@ -166,5 +231,26 @@ mod tests {
         assert!(validate_host("bad host").is_err());
         assert!(validate_mac(&Some("AA:BB:CC:DD:EE:FF".to_string())).is_ok());
         assert!(validate_mac(&Some("not-a-mac".to_string())).is_err());
+    }
+
+    #[test]
+    fn validates_sunshine_proxy_inputs() {
+        assert!(validate_client_id("client-1").is_ok());
+        assert!(validate_client_id("\nclient").is_err());
+        assert!(validate_pin_request("1234", "Moonlight").is_ok());
+        assert!(validate_pin_request("12ab", "Moonlight").is_err());
+        assert!(validate_cover_upload("box-art", "https://example.test/cover.jpg").is_ok());
+        assert!(validate_cover_upload("box-art", "file:///etc/passwd").is_err());
+        assert!(
+            validate_proxy_json_object(
+                "Sunshine config",
+                &serde_json::json!({"locale": "en"}),
+                1024
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_proxy_json_object("Sunshine config", &serde_json::json!([]), 1024).is_err()
+        );
     }
 }

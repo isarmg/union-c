@@ -38,22 +38,16 @@ pub async fn ram_instance(pool: &DbPool, id: &str) -> anyhow::Result<Option<RamI
 }
 
 pub async fn insert_ram_instance(pool: &DbPool, record: &RamInstanceRecord) -> anyhow::Result<()> {
-    let mut tx = pool.begin().await?;
     query("INSERT INTO ram_instances(id,name,bind_address,port,serve_path,desired_state,use_tls,verify_tls) VALUES($1,$2,$3,$4,'/','stopped',$5,$6)")
         .bind(&record.id).bind(&record.name).bind(&record.host_address).bind(i32::from(record.port))
-        .bind(record.use_tls).bind(record.verify_tls).execute(&mut *tx).await?;
-    upsert_ram_host_address(&mut tx, record).await?;
-    tx.commit().await?;
+        .bind(record.use_tls).bind(record.verify_tls).execute(pool).await?;
     Ok(())
 }
 
 pub async fn update_ram_instance(pool: &DbPool, record: &RamInstanceRecord) -> anyhow::Result<()> {
-    let mut tx = pool.begin().await?;
     query("UPDATE ram_instances SET name=$2,bind_address=$3,port=$4,use_tls=$5,verify_tls=$6,updated_at=NOW() WHERE id=$1")
         .bind(&record.id).bind(&record.name).bind(&record.host_address).bind(i32::from(record.port))
-        .bind(record.use_tls).bind(record.verify_tls).execute(&mut *tx).await?;
-    upsert_ram_host_address(&mut tx, record).await?;
-    tx.commit().await?;
+        .bind(record.use_tls).bind(record.verify_tls).execute(pool).await?;
     Ok(())
 }
 
@@ -71,29 +65,10 @@ pub async fn delete_ram_instance(pool: &DbPool, id: &str) -> anyhow::Result<()> 
         .bind(&service_name)
         .execute(&mut *tx)
         .await?;
-    query("DELETE FROM managed_host_addresses WHERE kind='ram' AND host_id=$1")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
     query("DELETE FROM ram_instances WHERE id=$1")
         .bind(id)
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
-    Ok(())
-}
-
-async fn upsert_ram_host_address(
-    tx: &mut sqlx_core::transaction::Transaction<'_, sqlx_postgres::Postgres>,
-    record: &RamInstanceRecord,
-) -> anyhow::Result<()> {
-    query(
-        "INSERT INTO managed_host_addresses(kind,host_id,address) VALUES('ram',$1,$2) \
-         ON CONFLICT(kind,host_id) DO UPDATE SET address=EXCLUDED.address,updated_at=NOW()",
-    )
-    .bind(&record.id)
-    .bind(&record.host_address)
-    .execute(&mut **tx)
-    .await?;
     Ok(())
 }

@@ -5,7 +5,6 @@
 
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
-use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
 use tokio::{
     process::Child,
@@ -23,7 +22,9 @@ pub struct AppState {
     /// 配置使用 Arc 共享给所有路由，避免每个请求复制完整配置。
     pub settings: Arc<Settings>,
     /// PostgreSQL 连接池，本身就是可克隆的轻量句柄。
-    database: Arc<ArcSwap<DbPool>>,
+    database: Arc<DbPool>,
+    /// 业务路由数据库可用性短缓存，避免高频轮询每次都做 PostgreSQL 往返。
+    pub database_health: Arc<Mutex<Option<DatabaseHealthSnapshot>>>,
     /// 当前由union托管的 ram 子进程。
     pub ram: Arc<ProcessSlot>,
     /// 后端启动时间，用于计算 uptime。
@@ -81,6 +82,12 @@ pub struct LoginAttemptState {
     pub by_username: HashMap<String, Vec<Instant>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct DatabaseHealthSnapshot {
+    pub checked_at: Instant,
+    pub available: bool,
+}
+
 /// 可变进程槽位。
 pub struct ProcessSlot {
     /// 串行化完整启停流程；child 锁只保护句柄本身，不能覆盖 spawn 前的异步窗口。
@@ -111,7 +118,8 @@ impl AppState {
         let proxmox_hosts = settings.proxmox.hosts.clone();
         Self {
             settings: Arc::new(settings),
-            database: Arc::new(ArcSwap::from_pointee(db)),
+            database: Arc::new(db),
+            database_health: Arc::new(Mutex::new(None)),
             ram: Arc::new(ProcessSlot {
                 operation: Mutex::new(()),
                 child: Mutex::new(None),
@@ -137,12 +145,8 @@ impl AppState {
         }
     }
 
-    /// 获取当前数据库池。设置页切换连接时，已有请求继续使用旧池，新请求立即使用新池。
+    /// 获取启动时装载的数据库池。设置页只验证并保存新连接串，完整切换在重启后生效。
     pub fn db(&self) -> Arc<DbPool> {
-        self.database.load_full()
-    }
-
-    pub fn replace_db(&self, pool: DbPool) -> Arc<DbPool> {
-        self.database.swap(Arc::new(pool))
+        self.database.clone()
     }
 }

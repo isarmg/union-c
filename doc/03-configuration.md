@@ -8,7 +8,9 @@
 2. PostgreSQL 运行配置：监听端口、数据目录、外部主机、ram 和博客构建设置；
 3. 前端构建环境：`PUBLIC_SITE_URL` 只在 Astro 构建时读取，不是 `union` 的运行参数。
 
-运行配置以加密 JSON 存入 `settings` 表的 `app.runtime_settings`。数据库连接串本身不会写入数据库。
+基础运行配置以加密 JSON 存入 `settings.app.runtime_settings`。Sunshine 和 Proxmox
+主机存入 `external_hosts`：地址和脱敏配置结构化保存，密码或 Token 单独加密。
+数据库连接串保存在权限为 `0600` 的本地管理员配置中，不写入业务数据库。
 
 初学者可以把加载过程理解为两个阶段：
 
@@ -32,6 +34,7 @@
 | `UNION_ENV` | 生产必需 | 值为 `production` 时启用生产安全校验。 |
 | `UNION_DATABASE_URL` | 可选 | PostgreSQL URL；也可登录控制台后在“设置”中保存。环境变量存在时优先。 |
 | `UNION_SECRET_KEY` | 生产必需 | 32 字节随机值的 Base64 编码，用于 AES-256-GCM。 |
+| `UNION_SECRET_KEY_ID` | 建议 | 当前密钥标识，默认 `primary`；写入 v2 密文用于识别密钥版本。 |
 | `UNION_BOOTSTRAP_PASSWORD` | 首次生产启动必需 | 本地管理员配置不存在时使用，至少 12 字符；创建后应从环境文件删除。 |
 | `UNION_RAM_PUBLIC_URL` | 生产必需 | ram 对外 HTTPS 地址，例如 `https://files.home.lan`。 |
 | `UNION_RETENTION_DAYS` | 可选 | 会话外的运维历史保留天数，默认 90，范围 7 到 3650。 |
@@ -76,6 +79,9 @@ openssl rand -base64 32
 | `data/moonlight/` | Moonlight 相关运行数据。 |
 
 `union` 启动时会创建所需目录并把 `data/` 权限设为 `0700`。
+
+管理台保存数据库连接时会先连接并执行迁移，但不会热切换运行中的配置和后台任务；
+页面提示重启后，由启动流程一次性装载完整数据库状态。
 
 ## ram 默认设置
 

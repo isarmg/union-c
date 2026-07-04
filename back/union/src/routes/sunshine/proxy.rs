@@ -1,6 +1,6 @@
 //! Sunshine Web API 代理端点。
 
-use super::{common::find_host, *};
+use super::{common::*, *};
 
 // ─── Sunshine API 代理 ────────────────────────────────────────────────────────
 // 以下 handler 都是简单的代理：找到主机 → 调用 sunshine 模块的对应函数 → 返回结果。
@@ -20,28 +20,42 @@ pub(super) async fn apps_save(
     Path(id): Path<String>,
     Json(body): Json<Value>,
 ) -> AppResult<Json<Value>> {
-    Ok(Json(
-        sunshine::apps_save(&find_host(&state, &id).await?, body).await?,
-    ))
+    validate_proxy_json_object("Sunshine app payload", &body, 256 * 1024)?;
+    let detail = body
+        .get("name")
+        .and_then(Value::as_str)
+        .map(|name| format!("name={}", name.trim()))
+        .unwrap_or_else(|| "app payload saved".to_string());
+    let host = find_host(&state, &id).await?;
+    let response = sunshine::apps_save(&host, body).await?;
+    audit(&state, "sunshine.app.save", &id, Some(&detail)).await?;
+    Ok(Json(response))
 }
 
 pub(super) async fn apps_close(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<Value>> {
-    Ok(Json(
-        sunshine::apps_close(&find_host(&state, &id).await?).await?,
-    ))
+    let response = sunshine::apps_close(&find_host(&state, &id).await?).await?;
+    audit(&state, "sunshine.app.close", &id, None).await?;
+    Ok(Json(response))
 }
 
 pub(super) async fn apps_delete(
     State(state): State<AppState>,
     Path((id, index)): Path<(String, u32)>,
 ) -> AppResult<Json<Value>> {
+    validate_index(index)?;
     // `Path<(String, u32)>` 提取两个路径参数 `/hosts/{id}/apps/{index}`
-    Ok(Json(
-        sunshine::apps_delete(&find_host(&state, &id).await?, index).await?,
-    ))
+    let response = sunshine::apps_delete(&find_host(&state, &id).await?, index).await?;
+    audit(
+        &state,
+        "sunshine.app.delete",
+        &id,
+        Some(&format!("index={index}")),
+    )
+    .await?;
+    Ok(Json(response))
 }
 
 pub(super) async fn clients_list(
@@ -58,18 +72,25 @@ pub(super) async fn clients_unpair(
     Path(id): Path<String>,
     Json(p): Json<SunshineUnpairRequest>,
 ) -> AppResult<Json<Value>> {
-    Ok(Json(
-        sunshine::clients_unpair(&find_host(&state, &id).await?, &p.uuid).await?,
-    ))
+    let client_id = validate_client_id(&p.uuid)?;
+    let response = sunshine::clients_unpair(&find_host(&state, &id).await?, client_id).await?;
+    audit(
+        &state,
+        "sunshine.client.unpair",
+        &id,
+        Some(&format!("client={client_id}")),
+    )
+    .await?;
+    Ok(Json(response))
 }
 
 pub(super) async fn clients_unpair_all(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<Value>> {
-    Ok(Json(
-        sunshine::clients_unpair_all(&find_host(&state, &id).await?).await?,
-    ))
+    let response = sunshine::clients_unpair_all(&find_host(&state, &id).await?).await?;
+    audit(&state, "sunshine.client.unpair_all", &id, None).await?;
+    Ok(Json(response))
 }
 
 pub(super) async fn clients_update(
@@ -77,9 +98,17 @@ pub(super) async fn clients_update(
     Path(id): Path<String>,
     Json(p): Json<SunshineClientUpdateRequest>,
 ) -> AppResult<Json<Value>> {
-    Ok(Json(
-        sunshine::clients_update(&find_host(&state, &id).await?, &p.uuid, p.enabled).await?,
-    ))
+    let client_id = validate_client_id(&p.uuid)?;
+    let response =
+        sunshine::clients_update(&find_host(&state, &id).await?, client_id, p.enabled).await?;
+    audit(
+        &state,
+        "sunshine.client.update",
+        &id,
+        Some(&format!("client={client_id} enabled={}", p.enabled)),
+    )
+    .await?;
+    Ok(Json(response))
 }
 
 pub(super) async fn config_get(
@@ -96,9 +125,10 @@ pub(super) async fn config_save(
     Path(id): Path<String>,
     Json(body): Json<Value>,
 ) -> AppResult<Json<Value>> {
-    Ok(Json(
-        sunshine::config_save(&find_host(&state, &id).await?, body).await?,
-    ))
+    validate_proxy_json_object("Sunshine config payload", &body, 1024 * 1024)?;
+    let response = sunshine::config_save(&find_host(&state, &id).await?, body).await?;
+    audit(&state, "sunshine.config.save", &id, Some("config updated")).await?;
+    Ok(Json(response))
 }
 
 pub(super) async fn config_locale(
@@ -124,9 +154,16 @@ pub(super) async fn pin(
     Path(id): Path<String>,
     Json(p): Json<SunshinePinRequest>,
 ) -> AppResult<Json<Value>> {
-    Ok(Json(
-        sunshine::pin_pair(&find_host(&state, &id).await?, &p.pin, &p.name).await?,
-    ))
+    let (pin, name) = validate_pin_request(&p.pin, &p.name)?;
+    let response = sunshine::pin_pair(&find_host(&state, &id).await?, &pin, &name).await?;
+    audit(
+        &state,
+        "sunshine.client.pair",
+        &id,
+        Some(&format!("name={name}")),
+    )
+    .await?;
+    Ok(Json(response))
 }
 
 pub(super) async fn password(
@@ -134,27 +171,34 @@ pub(super) async fn password(
     Path(id): Path<String>,
     Json(body): Json<Value>,
 ) -> AppResult<Json<Value>> {
-    Ok(Json(
-        sunshine::password_update(&find_host(&state, &id).await?, body).await?,
-    ))
+    validate_proxy_json_object("Sunshine password payload", &body, 64 * 1024)?;
+    let response = sunshine::password_update(&find_host(&state, &id).await?, body).await?;
+    audit(
+        &state,
+        "sunshine.password.update",
+        &id,
+        Some("password updated"),
+    )
+    .await?;
+    Ok(Json(response))
 }
 
 pub(super) async fn restart(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<Value>> {
-    Ok(Json(
-        sunshine::restart(&find_host(&state, &id).await?).await?,
-    ))
+    let response = sunshine::restart(&find_host(&state, &id).await?).await?;
+    audit(&state, "sunshine.system.restart", &id, None).await?;
+    Ok(Json(response))
 }
 
 pub(super) async fn reset_display(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<Value>> {
-    Ok(Json(
-        sunshine::reset_display_device(&find_host(&state, &id).await?).await?,
-    ))
+    let response = sunshine::reset_display_device(&find_host(&state, &id).await?).await?;
+    audit(&state, "sunshine.display.reset", &id, None).await?;
+    Ok(Json(response))
 }
 
 /// 获取并转发游戏封面图片（二进制响应，需要特殊处理）。
@@ -166,6 +210,7 @@ pub(super) async fn cover_get(
     State(state): State<AppState>,
     Path((id, index)): Path<(String, u32)>,
 ) -> Result<Response, AppError> {
+    validate_index(index)?;
     let host = find_host(&state, &id).await?;
     let (content_type, bytes) = sunshine::cover_get(&host, index).await?;
     // 将 content_type 字符串转为 HTTP 头值（HeaderValue），无效时退回 image/jpeg
@@ -182,7 +227,33 @@ pub(super) async fn cover_upload(
     Path(id): Path<String>,
     Json(p): Json<SunshineCoverUploadRequest>,
 ) -> AppResult<Json<Value>> {
-    Ok(Json(
-        sunshine::cover_upload(&find_host(&state, &id).await?, &p.key, &p.url).await?,
-    ))
+    let (key, url) = validate_cover_upload(&p.key, &p.url)?;
+    let response = sunshine::cover_upload(&find_host(&state, &id).await?, &key, &url).await?;
+    audit(
+        &state,
+        "sunshine.cover.upload",
+        &id,
+        Some(&format!("key={key}")),
+    )
+    .await?;
+    Ok(Json(response))
+}
+
+fn validate_index(index: u32) -> AppResult<()> {
+    if index > 10_000 {
+        return Err(AppError::BadRequest(
+            "Sunshine app index is out of range".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+async fn audit(
+    state: &AppState,
+    action: &str,
+    target: &str,
+    detail: Option<&str>,
+) -> AppResult<()> {
+    database::insert_audit(state.db().as_ref(), action, target, detail).await?;
+    Ok(())
 }

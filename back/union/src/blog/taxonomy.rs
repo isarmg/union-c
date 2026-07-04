@@ -1,6 +1,6 @@
 //! 分类、标签和首页展示配置。
 
-use super::{orphans::validate_relative_post_path, storage::*, *};
+use super::{storage::*, *};
 
 /// 统计标签和分类。
 ///
@@ -72,19 +72,8 @@ pub async fn save_home_config(
 ) -> AppResult<BlogHomeConfig> {
     let _content_guard = state.blog.content_lock.lock().await;
     let config = normalize_home_config(request)?;
-    let content_dir = &state.settings.paths.blog_export_dir;
-    fs::create_dir_all(content_dir)?;
-    let config_path = content_dir.join(BLOG_HOME_CONFIG_FILE);
-    let backup = stage_existing_file(&config_path)?;
-    if let Err(err) = write_home_config_file(&config_path, &config) {
-        restore_staged_file(&config_path, backup.as_deref());
-        return Err(err);
-    }
-    if let Err(err) = save_home_config_to_db(state, &config).await {
-        restore_staged_file(&config_path, backup.as_deref());
-        return Err(err);
-    }
-    discard_staged_file(backup.as_deref());
+    save_home_config_to_db(state, &config).await?;
+    export_blog_content(state).await?;
     database::insert_audit(
         state.db().as_ref(),
         "blog.home.save",
@@ -112,7 +101,7 @@ pub async fn create_tag(
         "already_exists".to_string()
     };
 
-    if let Some(category) = clean_optional(&request.category) {
+    if let Some(category) = normalize_optional_category(&request.category)? {
         database::insert_blog_taxonomy(
             state.db().as_ref(),
             TaxonomyKind::Category.db_kind(),
@@ -152,7 +141,7 @@ pub async fn rename_tag(
     if from == to {
         return Ok(BlogBulkEditResponse { changed: 0 });
     }
-    let category = clean_optional(&request.category);
+    let category = normalize_optional_category(&request.category)?;
 
     let changed = rewrite_all_posts(state, |front| {
         if let Some(category) = category.as_deref()
@@ -214,7 +203,7 @@ pub async fn delete_tag(
 ) -> AppResult<BlogBulkEditResponse> {
     ensure_blog_seeded(state).await?;
     let tag = normalize_taxonomy_name(&request.tag, "tag name")?;
-    let category = clean_optional(&request.category);
+    let category = normalize_optional_category(&request.category)?;
 
     let changed = rewrite_all_posts(state, |front| {
         if let Some(category) = category.as_deref()
@@ -339,33 +328,20 @@ where
 {
     let _content_guard = state.blog.content_lock.lock().await;
     ensure_blog_seeded(state).await?;
-    let records = database::list_blog_posts(state.db().as_ref()).await?;
-    let mut changed = 0;
+    let records = database::list_blog_posts_with_content(state.db().as_ref()).await?;
+    let mut changed_posts = Vec::new();
     for record in records {
         let mut front = front_from_record(&record);
         if update(&mut front) {
             let mut request = post_request_from_record(&record);
             apply_front_to_request(&mut request, front);
-            let file_path = validate_relative_post_path(
-                &state.settings.paths.blog_export_dir,
-                &request.relative_path,
-                false,
-            )?;
-            let backup = stage_existing_file(&file_path)?;
-            if let Err(err) = atomic_write_file(&file_path, render_post(&request).as_bytes()) {
-                restore_staged_file(&file_path, backup.as_deref());
-                return Err(err);
-            }
-            if let Err(err) =
-                database::upsert_blog_post(state.db().as_ref(), &post_input_from_request(&request))
-                    .await
-            {
-                restore_staged_file(&file_path, backup.as_deref());
-                return Err(err.into());
-            }
-            discard_staged_file(backup.as_deref());
-            changed += 1;
+            changed_posts.push(post_input_from_request(&request));
         }
+    }
+    let changed = changed_posts.len();
+    if changed > 0 {
+        database::upsert_blog_posts(state.db().as_ref(), &changed_posts).await?;
+        export_blog_content(state).await?;
     }
     Ok(changed)
 }
@@ -392,4 +368,25 @@ async fn create_taxonomy_item(
     Ok(BlogBulkEditResponse {
         changed: usize::from(changed),
     })
+}
+
+fn normalize_optional_category(category: &Option<String>) -> AppResult<Option<String>> {
+    clean_optional(category)
+        .map(|value| normalize_taxonomy_name(&value, TaxonomyKind::Category.label()))
+        .transpose()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn optional_category_uses_taxonomy_name_rules() {
+        assert_eq!(
+            normalize_optional_category(&Some("  Infra  ".to_string())).unwrap(),
+            Some("Infra".to_string())
+        );
+        assert!(normalize_optional_category(&Some("bad,category".to_string())).is_err());
+        assert_eq!(normalize_optional_category(&None).unwrap(), None);
+    }
 }

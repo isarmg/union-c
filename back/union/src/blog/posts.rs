@@ -4,8 +4,16 @@ use super::{orphans::validate_relative_post_path, storage::*, *};
 
 /// 列出所有博客文章。
 pub async fn list_posts(state: &AppState) -> AppResult<Vec<BlogPost>> {
-    ensure_blog_seeded(state).await?;
     let posts = database::list_blog_posts(state.db().as_ref()).await?;
+    Ok(posts.into_iter().map(post_record_to_post).collect())
+}
+
+pub async fn list_posts_page(
+    state: &AppState,
+    limit: i64,
+    offset: i64,
+) -> AppResult<Vec<BlogPost>> {
+    let posts = database::list_blog_posts_page(state.db().as_ref(), limit, offset).await?;
     Ok(posts.into_iter().map(post_record_to_post).collect())
 }
 
@@ -13,7 +21,6 @@ pub async fn list_posts(state: &AppState) -> AppResult<Vec<BlogPost>> {
 ///
 /// 返回值包含文章元数据和正文；正文会去掉 frontmatter，方便前端编辑器直接编辑内容。
 pub async fn post_detail(state: &AppState, path: &str) -> AppResult<BlogPostDetail> {
-    ensure_blog_seeded(state).await?;
     validate_relative_post_path(&state.settings.paths.blog_export_dir, path, false)?;
     let record = database::blog_post_by_path(state.db().as_ref(), path)
         .await?
@@ -77,50 +84,8 @@ pub async fn save_post(
         )));
     }
 
-    let target_path = validate_relative_post_path(
-        &state.settings.paths.blog_export_dir,
-        &input.relative_path,
-        false,
-    )?;
-    let original_file = original_path
-        .filter(|path| *path != input.relative_path)
-        .map(|path| validate_relative_post_path(&state.settings.paths.blog_export_dir, path, false))
-        .transpose()?
-        .filter(|path| path != &target_path);
-
-    // 先把旧文件挪到同目录备份，再原子写入新文件。数据库失败时可以完整回滚。
-    let target_backup = stage_existing_file(&target_path)?;
-    let original_backup = if let Some(path) = original_file.as_deref() {
-        match stage_existing_file(path) {
-            Ok(backup) => backup,
-            Err(err) => {
-                restore_staged_file(&target_path, target_backup.as_deref());
-                return Err(err);
-            }
-        }
-    } else {
-        None
-    };
-    if let Err(err) = atomic_write_file(&target_path, render_post(&request).as_bytes()) {
-        restore_staged_file(&target_path, target_backup.as_deref());
-        if let Some(path) = original_file.as_deref() {
-            restore_staged_file(path, original_backup.as_deref());
-        }
-        return Err(err);
-    }
-
-    if let Err(err) =
-        database::upsert_blog_post_from_path(state.db().as_ref(), &input, original_path).await
-    {
-        restore_staged_file(&target_path, target_backup.as_deref());
-        if let Some(path) = original_file.as_deref() {
-            restore_staged_file(path, original_backup.as_deref());
-        }
-        return Err(err.into());
-    }
-    discard_staged_file(target_backup.as_deref());
-    discard_staged_file(original_backup.as_deref());
-    export_taxonomy_registry(state).await?;
+    database::upsert_blog_post_from_path(state.db().as_ref(), &input, original_path).await?;
+    export_blog_content(state).await?;
 
     database::insert_audit(
         state.db().as_ref(),
@@ -142,23 +107,14 @@ pub async fn save_post(
 pub async fn delete_post(state: &AppState, path: &str) -> AppResult<BlogPostDeleteResponse> {
     let _content_guard = state.blog.content_lock.lock().await;
     ensure_blog_seeded(state).await?;
-    let path_buf = validate_relative_post_path(&state.settings.paths.blog_export_dir, path, false)?;
-    let staged = stage_existing_file(&path_buf)?;
-    let deleted = match database::delete_blog_post(state.db().as_ref(), path).await {
-        Ok(deleted) => deleted,
-        Err(err) => {
-            restore_staged_file(&path_buf, staged.as_deref());
-            return Err(err.into());
-        }
-    };
+    validate_relative_post_path(&state.settings.paths.blog_export_dir, path, false)?;
+    let deleted = database::delete_blog_post(state.db().as_ref(), path).await?;
     if !deleted {
-        restore_staged_file(&path_buf, staged.as_deref());
         return Err(AppError::BadRequest(format!(
             "blog post does not exist: {path}"
         )));
     }
-    discard_staged_file(staged.as_deref());
-    export_taxonomy_registry(state).await?;
+    export_blog_content(state).await?;
     database::insert_audit(state.db().as_ref(), "blog.post.delete", path, None).await?;
     Ok(BlogPostDeleteResponse {
         deleted,
@@ -196,24 +152,8 @@ async fn set_post_draft(
     if changed {
         let mut request = post_request_from_record(&record);
         request.draft = draft;
-        let file_path = validate_relative_post_path(
-            &state.settings.paths.blog_export_dir,
-            &request.relative_path,
-            false,
-        )?;
-        let backup = stage_existing_file(&file_path)?;
-        if let Err(err) = atomic_write_file(&file_path, render_post(&request).as_bytes()) {
-            restore_staged_file(&file_path, backup.as_deref());
-            return Err(err);
-        }
-        if let Err(err) =
-            database::upsert_blog_post(state.db().as_ref(), &post_input_from_request(&request))
-                .await
-        {
-            restore_staged_file(&file_path, backup.as_deref());
-            return Err(err.into());
-        }
-        discard_staged_file(backup.as_deref());
+        database::upsert_blog_post(state.db().as_ref(), &post_input_from_request(&request)).await?;
+        export_blog_content(state).await?;
     }
 
     database::insert_audit(

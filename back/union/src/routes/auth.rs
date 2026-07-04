@@ -35,36 +35,27 @@ pub(super) fn router() -> Router<AppState> {
         .route("/api/auth/change-password", post(change_password))
 }
 
-// ─── Token 提取工具 ────────────────────────────────────────────────────────────
-
-/// 从 Authorization 头提取 Bearer Token。
-pub(super) fn bearer_token(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-}
-
 /// 从 Cookie 头提取 session cookie 的值。
 pub(super) fn session_cookie(headers: &HeaderMap) -> Option<String> {
     let cookie_str = headers.get(header::COOKIE).and_then(|v| v.to_str().ok())?;
+    let mut legacy = None;
     for part in cookie_str.split(';') {
         let part = part.trim();
-        if let Some(value) = part
-            .strip_prefix("__Host-session=")
-            .or_else(|| part.strip_prefix("session="))
-        {
+        if let Some(value) = part.strip_prefix("__Host-session=") {
             return Some(value.to_string());
         }
+        if legacy.is_none()
+            && let Some(value) = part.strip_prefix("session=")
+        {
+            legacy = Some(value.to_string());
+        }
     }
-    None
+    legacy
 }
 
-/// 同时检查 Bearer 头和 session cookie，返回第一个找到的 token。
+/// 管理台只使用 HttpOnly Cookie，不把长效会话令牌暴露给 JavaScript。
 pub(super) fn extract_token(headers: &HeaderMap) -> Option<String> {
-    bearer_token(headers)
-        .map(|s| s.to_string())
-        .or_else(|| session_cookie(headers))
+    session_cookie(headers)
 }
 
 async fn authenticate(state: &AppState, username: &str, password: String) -> AppResult<String> {
@@ -205,7 +196,7 @@ async fn create_login_response(state: &AppState, username: String) -> AppResult<
     drop(sessions);
 
     let cookie = session_cookie_value(&token, state.settings.production, 604800);
-    let mut response = Json(LoginResponse { token, username }).into_response();
+    let mut response = Json(LoginResponse { username }).into_response();
     response
         .headers_mut()
         .insert(header::SET_COOKIE, cookie_header(&cookie)?);
@@ -335,7 +326,9 @@ pub(super) async fn local_session_user(state: &AppState, token: &str) -> AppResu
 
 #[cfg(test)]
 mod tests {
-    use super::session_cookie_value;
+    use axum::http::{HeaderMap, header};
+
+    use super::{session_cookie, session_cookie_value};
 
     #[test]
     fn production_cookie_has_strict_security_attributes() {
@@ -343,5 +336,16 @@ mod tests {
         assert!(cookie.contains("HttpOnly"));
         assert!(cookie.contains("SameSite=Strict"));
         assert!(cookie.contains("; Secure"));
+    }
+
+    #[test]
+    fn host_session_cookie_takes_precedence_over_legacy_cookie() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            "session=legacy; __Host-session=secure".parse().unwrap(),
+        );
+
+        assert_eq!(session_cookie(&headers).as_deref(), Some("secure"));
     }
 }
