@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - working-directory: back/union
+        run: cargo fmt --all -- --check
+      - working-directory: back/union
+        run: cargo test --all-targets --locked
+      - working-directory: back/union
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+      - working-directory: back/union
+        run: cargo build --release --locked
+      - working-directory: back/ram
+        run: cargo test --all-targets --locked
+      - working-directory: back/ram
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+  web:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [back/back, back/blog]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+      - working-directory: ${{ matrix.app }}
+        run: npm ci
+      - working-directory: ${{ matrix.app }}
+        run: npm audit --audit-level=high
+      - working-directory: ${{ matrix.app }}
+        run: npm run build
+
+  rustsec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit --file back/union/Cargo.lock
+      - run: cargo audit --file back/ram/Cargo.lock

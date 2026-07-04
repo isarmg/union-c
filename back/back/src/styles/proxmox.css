@@ -1,0 +1,376 @@
+/* ── Proxmox VE ── */
+
+/* ProxmoxView 外层容器 */
+.pve-view {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 主机卡片网格外层：relative，供相邻面板绝对定位 */
+.pve-cards-outer {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 主机卡片网格：6 列，与统一内容块网格对齐 */
+/* 相邻面板：绝对定位，高度由 JS 通过 inline style 精确控制 */
+.pve-adj-panel {
+  z-index: 20;
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow);
+}
+
+/* 主机卡片：在统一内容块样式基础上补充交互状态 */
+.pve-host-card {
+  cursor: pointer;
+}
+.pve-host-card:hover { border-color: var(--text); }
+.pve-host-card.active { background: var(--surface); border-color: var(--text); }
+.pve-host-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  width: 100%;
+}
+
+
+/* 主机详情面板 */
+.pve-host-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.pve-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.pve-panel-title { display: flex; align-items: center; gap: 10px; }
+.pve-panel-addr { font-size: 12px; color: var(--muted); font-family: monospace; }
+
+/* Tab 栏 */
+.pve-tab-bar {
+  display: flex;
+  gap: 2px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.pve-tab-bar button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.pve-tab-bar button:hover { background: var(--bg); color: var(--text); }
+.pve-tab-bar button.active { background: var(--accent); color: #fff; }
+
+/* Tab 内容区 */
+.pve-tab-content { flex: 1; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+
+/* 节点状态条 */
+.pve-nodes-strip { display: flex; flex-wrap: wrap; gap: 8px; }
+.pve-node-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  background: var(--surface);
+  transition: border-color 0.15s;
+}
+.pve-node-chip:hover { border-color: var(--accent); }
+.pve-node-chip.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.pve-node-cpu { color: var(--muted); font-family: monospace; }
+.pve-summary-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+/* 状态点和标签 */
+.pve-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pve-status-running { background: #22c55e; }
+.pve-status-stopped { background: var(--muted); }
+.pve-status-paused  { background: #f59e0b; }
+.pve-status-unknown { background: var(--border); }
+
+.pve-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.pve-status-badge.pve-status-running { background: rgb(34 197 94 / 0.15); color: #16a34a; }
+.pve-status-badge.pve-status-stopped { background: var(--bg); color: var(--muted); }
+.pve-status-badge.pve-status-paused  { background: rgb(245 158 11 / 0.15); color: #d97706; }
+.pve-status-badge.pve-status-unknown { background: var(--bg); color: var(--muted); }
+
+/* 过滤栏 */
+.pve-filter-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pve-filter-group { display: flex; gap: 2px; }
+.pve-filter-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.pve-filter-btn:hover { color: var(--text); }
+.pve-filter-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.pve-filter-clear {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.pve-filter-clear:hover { color: var(--danger); }
+
+/* 资源表格 */
+.pve-resource-table { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.pve-resource-head {
+  display: grid;
+  grid-template-columns: 20px 50px 48px 1fr 90px 80px 70px 150px 80px 180px 100px;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.pve-resource-row {
+  display: grid;
+  grid-template-columns: 20px 50px 48px 1fr 90px 80px 70px 150px 80px 180px 100px;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+.pve-resource-row:last-child { border-bottom: none; }
+.pve-resource-row:hover { background: var(--bg); }
+.pve-resource-row.expanded { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
+.pve-res-expand { cursor: pointer; color: var(--muted); display: flex; align-items: center; }
+.pve-res-type-badge { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); }
+.pve-res-vmid { font-family: monospace; font-size: 12px; font-weight: 600; }
+.pve-res-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pve-res-node { font-size: 11px; color: var(--muted); }
+.pve-res-cpu, .pve-res-mem, .pve-res-uptime { font-family: monospace; font-size: 11px; color: var(--muted); }
+.pve-res-actions { display: flex; align-items: center; gap: 3px; }
+.pve-res-detail-btns { display: flex; align-items: center; gap: 2px; }
+
+/* 操作按钮（彩色小方块） */
+.pve-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.1s, filter 0.1s;
+  color: #fff;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+.pve-btn:hover:not(:disabled) { filter: brightness(1.15); }
+.pve-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.pve-btn.green { background: #16a34a; }
+.pve-btn.yellow { background: #ca8a04; }
+.pve-btn.red { background: #dc2626; }
+.pve-btn.blue { background: #2563eb; }
+.pve-btn.gray { background: #6b7280; }
+.pve-detail-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.pve-detail-btn:hover { background: var(--bg); color: var(--text); }
+.pve-detail-btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+
+/* 展开详情区 */
+.pve-resource-detail {
+  padding: 10px 40px;
+  background: color-mix(in srgb, var(--accent) 3%, var(--surface));
+  border-bottom: 1px solid var(--border);
+}
+
+/* 快照面板 */
+.pve-snapshots { display: flex; flex-direction: column; gap: 6px; max-width: 640px; }
+.pve-snap-header { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 600; }
+.pve-snap-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+}
+.pve-snap-form input { padding: 6px 8px; font-size: 12px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text); }
+.pve-snap-form-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.pve-check-label { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.pve-snap-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.pve-snap-row:last-child { border-bottom: none; }
+.pve-snap-info { flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.pve-snap-name { font-size: 12px; font-weight: 600; font-family: monospace; }
+.pve-snap-desc { font-size: 11px; color: var(--muted); }
+.pve-snap-time { font-size: 11px; color: var(--muted); }
+.pve-snap-btns { display: flex; gap: 4px; }
+
+/* 迁移面板 */
+.pve-migrate-panel { display: flex; flex-direction: column; gap: 10px; max-width: 380px; }
+.pve-migrate-title { font-size: 13px; font-weight: 600; }
+.pve-migrate-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* 配置查看器 */
+.pve-config-table { display: flex; flex-direction: column; font-family: monospace; font-size: 12px; max-width: 700px; }
+.pve-config-row { display: grid; grid-template-columns: 180px 1fr; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.pve-config-row:last-child { border-bottom: none; }
+.pve-config-key { color: var(--accent); font-weight: 600; }
+.pve-config-val { color: var(--text); word-break: break-all; }
+
+/* 存储 tab 三列布局 */
+.pve-storage-layout { display: grid; grid-template-columns: 140px 200px 1fr; gap: 12px; height: 100%; overflow: hidden; }
+.pve-storage-nodes { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+.pve-storage-node-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s;
+}
+.pve-storage-node-btn:hover { border-color: var(--accent); }
+.pve-storage-node-btn.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.pve-storage-list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+.pve-storage-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  flex-wrap: wrap;
+  transition: border-color 0.12s;
+}
+.pve-storage-item:hover { border-color: var(--accent); }
+.pve-storage-item.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.pve-storage-type { font-size: 10px; color: var(--muted); margin-left: auto; }
+.pve-storage-usage { font-size: 10px; color: var(--muted); width: 100%; }
+.pve-storage-content { overflow-y: auto; }
+.pve-section-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+.pve-content-table { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.pve-content-head { display: grid; grid-template-columns: 1fr 80px 60px 80px 60px; gap: 8px; padding: 5px 10px; font-size: 11px; font-weight: 600; color: var(--muted); background: var(--bg); border-bottom: 1px solid var(--border); }
+.pve-content-row { display: grid; grid-template-columns: 1fr 80px 60px 80px 60px; gap: 8px; padding: 5px 10px; font-size: 11px; border-bottom: 1px solid var(--border); }
+.pve-content-row:last-child { border-bottom: none; }
+.pve-content-volid { font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 任务列表 */
+.pve-task-list { display: flex; flex-direction: column; gap: 1px; }
+.pve-task-row {
+  display: grid;
+  grid-template-columns: 24px 140px 100px 1fr 80px 150px;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+.pve-task-status { display: flex; align-items: center; }
+.pve-task-status.ok { color: #16a34a; }
+.pve-task-status.fail { color: var(--danger); }
+.pve-task-status.running { color: var(--accent); }
+.pve-task-type { font-family: monospace; font-size: 11px; }
+.pve-task-node { color: var(--muted); font-size: 11px; }
+.pve-task-user { color: var(--muted); font-size: 11px; }
+.pve-task-id { font-family: monospace; font-size: 10px; color: var(--muted); }
+.pve-task-time { font-size: 11px; color: var(--muted); }
+.pve-task-err { grid-column: 1 / -1; font-size: 11px; color: var(--danger); }
+
+/* 表单 */
+.pve-form {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface);
+}
+.pve-form-title { font-size: 13px; font-weight: 600; }
+.pve-form-actions { display: flex; gap: 6px; justify-content: flex-end; padding-top: 4px; }
+
+/* 通用工具 */
+.pve-loading { display: flex; align-items: center; gap: 8px; color: var(--muted); padding: 20px 0; }
+.pve-loading-small { display: flex; align-items: center; gap: 6px; color: var(--muted); padding: 6px 0; }
+.pve-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--muted); padding: 32px 16px; font-size: 14px; }
+.pve-empty-small { font-size: 12px; color: var(--muted); padding: 8px 0; }
+.pve-inline-editable { flex: 1; cursor: default; user-select: none; }
+.pve-inline-editable:hover { text-decoration: underline dotted var(--muted); }
+.pve-inline-editable.compact { flex: 0 1 5ch; }
+.pve-inline-input { width: 100%; min-width: 0; padding: 0; font: inherit; color: var(--text); background: transparent; border: 0; border-bottom: 1px solid var(--primary); outline: 0; }
+.pve-inline-input.compact { flex: 0 1 5ch; }
+.pve-inline-input.input-error { border-bottom-color: var(--danger); }

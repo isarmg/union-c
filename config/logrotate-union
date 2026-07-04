@@ -1,0 +1,12 @@
+/opt/union/data/ram/logs/*.log {
+    daily
+    rotate 14
+    size 20M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su union union
+    create 0600 union union
+}

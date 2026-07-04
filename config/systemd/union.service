@@ -1,0 +1,38 @@
+[Unit]
+Description=Union
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=union
+Group=union
+WorkingDirectory=/opt/union
+EnvironmentFile=/etc/union/union.env
+Environment=PATH=/opt/union/bin:/usr/local/bin:/usr/bin
+ExecStart=/opt/union/bin/union
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=45s
+TimeoutStopSec=30s
+KillMode=control-group
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/opt/union/data
+ReadWritePaths=/opt/union/back/blog/dist /opt/union/back/blog/dist.next /opt/union/back/blog/dist.previous
+ReadWritePaths=/opt/union/back/blog/.astro /opt/union/back/blog/node_modules/.vite
+
+[Install]
+WantedBy=multi-user.target

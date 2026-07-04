@@ -1,0 +1,90 @@
+---
+// ─────────────────────────────────────────────────────────────────────────────
+// Astro 前置代码块（Frontmatter）
+// ─────────────────────────────────────────────────────────────────────────────
+// 两个 `---` 之间的代码在【构建时】由 Node.js 执行，不会出现在浏览器里。
+// 这里写的 TypeScript 可以读取文件、访问数据库、调用 API——任何 Node.js 能做的事。
+// 构建结束后，这段代码的"产物"（变量的值）会被插入到下面的 HTML 模板中。
+// ─────────────────────────────────────────────────────────────────────────────
+import Header from "@components/Header.astro";
+import Footer from "@components/Footer.astro";
+import { getSiteConfig } from "@lib/siteConfig";
+import { cssUrl, withBase, withoutBase } from "@lib/urls";
+import "../styles/global.css";
+
+// Props 接口：定义这个布局组件对外暴露的参数类型。
+// 使用这个布局的页面（如 index.astro）通过 <BaseLayout title="..." description="..."> 传值。
+// `image?` 中的 `?` 表示可选参数（没传时使用站点默认背景图）。
+interface Props {
+  title: string;
+  description: string;
+  image?: string;
+}
+
+// `Astro.props` 是 Astro 框架注入的特殊对象，包含父组件传来的所有 props。
+// 解构赋值写法：相当于 const title = Astro.props.title; 等等。
+const { title, description, image } = Astro.props;
+const siteConfig = getSiteConfig();
+
+// `??` 是"空值合并运算符"：image 有值时用 image，否则用站点默认背景图。
+const pageImage = image ?? siteConfig.background_image;
+
+// 规范化站点根 URL，优先用配置里的 site_url，
+// 其次用 astro.config.mjs 里的 site，最后 fallback 到当前请求 URL。
+const siteBase = Astro.site || siteConfig.site_url || Astro.url;
+
+// withBase / withoutBase：处理博客部署在子路径（如 /blog/）时的路径前缀问题。
+// 例如站点部署在 https://example.com/blog/ 时，
+// withoutBase("/blog/about") → "/about"（去掉前缀）
+// withBase("/about") → "/blog/about"（加回前缀）
+// 这里先去前缀再加回来，目的是统一规范化路径格式，避免双重前缀。
+const canonicalPath = withBase(withoutBase(Astro.url.pathname));
+
+// `new URL(path, base)` 将相对路径拼成完整 URL。
+// canonical URL 用于告诉搜索引擎这个页面的"标准地址"，避免重复内容问题。
+const canonical = new URL(canonicalPath, siteBase).toString();
+const imageUrl = new URL(withBase(pageImage), siteBase).toString();
+
+// CSS 自定义属性（CSS Variable）：`--site-background-image` 供全局样式使用，
+// cssUrl() 将路径包装成 CSS url("...") 格式。
+const bodyStyle = `--site-background-image: ${cssUrl(siteConfig.background_image)};`;
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+
+    <!-- canonical 标签：告诉搜索引擎这个页面的唯一标准 URL。
+         避免同一内容有多个 URL（带/不带尾斜杠、http/https 混用等）
+         被搜索引擎视为重复页面导致降权。 -->
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href={withBase("/favicon.svg")} />
+
+    <!-- OG（Open Graph）标签用于定义社交媒体分享时展示的标题、描述和图片。
+         当用户把这个页面链接分享到微信、Twitter、Discord 等平台时，
+         平台会读取这些 og: 标签来生成预览卡片（标题、描述、封面图）。
+         没有这些标签，分享出去只会显示一条裸链接。 -->
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={imageUrl} />
+    <meta property="og:type" content="website" />
+
+    <title>{title}</title>
+  </head>
+  <body style={bodyStyle}>
+    <Header />
+    <main>
+      <!-- <slot /> 是 Astro 的"插槽"机制，相当于 Vue 的 <slot>、React 的 {children}。
+           使用 BaseLayout 的页面写在 <BaseLayout>...</BaseLayout> 标签之间的内容，
+           会在构建时被"插入"到这个 <slot /> 的位置。
+           例如 index.astro 中 <BaseLayout ...><section>...</section></BaseLayout>，
+           那个 <section> 最终会出现在这里。 -->
+      <slot />
+    </main>
+    <Footer />
+
+  </body>
+</html>

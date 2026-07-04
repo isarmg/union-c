@@ -1,0 +1,51 @@
+---
+// ─────────────────────────────────────────────────────────────────────────────
+// 文章归档页（按年份分组）
+// ─────────────────────────────────────────────────────────────────────────────
+// 归档页的逻辑：
+//   1. 获取所有文章（按发布时间降序排列）；
+//   2. `groupPostsByYear` 将文章按 pubDate 的年份分组，
+//      返回 [年份, 该年文章数组][] 格式，例如：
+//      [ ["2024", [post1, post2]], ["2023", [post3]], ... ]
+//   3. 模板层用两层循环展示：外层按年份，内层按文章。
+//
+// 这种"按年份归档"的展示方式来源于传统博客惯例，
+// 让读者可以按发布时间浏览全部公开文章。
+// ─────────────────────────────────────────────────────────────────────────────
+import BaseLayout from "@layouts/BaseLayout.astro";
+import { formatDate, getAllPosts, getPostUrl, groupPostsByYear } from "@lib/posts";
+
+const posts = await getAllPosts();
+// `groupPostsByYear` 返回按年份降序排列的分组，最新年份在最前面。
+// 同年内的文章也按发布时间降序排列（最新的在前）。
+const years = groupPostsByYear(posts);
+---
+
+<BaseLayout title="文章归档 | Union Notes" description="按时间查看 Union Notes 的全部文章。">
+  <section class="page-heading">
+    <p class="eyebrow">Archive</p>
+    <h1>文章归档</h1>
+    <p>按发布时间排序，集中浏览全部公开文章。</p>
+  </section>
+  <section class="content-band">
+    <div class="archive-timeline">
+      {
+        years.map(([year, yearPosts]) => (
+          <section class="archive-year">
+            <h2>{year}</h2>
+            <div class="archive-list">
+              {yearPosts.map((post) => (
+                <a href={getPostUrl(post)}>
+                  <time datetime={post.data.pubDate.toISOString()}>{formatDate(post.data.pubDate)}</time>
+                  <strong>{post.data.title}</strong>
+                  <span>{post.data.category}</span>
+                  <p>{post.data.description}</p>
+                </a>
+              ))}
+            </div>
+          </section>
+        ))
+      }
+    </div>
+  </section>
+</BaseLayout>

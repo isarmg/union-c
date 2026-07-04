@@ -1,0 +1,27 @@
+---
+import type { Post } from "@lib/posts";
+import { getPostImage, getPostUrl } from "@lib/posts";
+
+interface Props {
+  post: Post;
+  featured?: boolean;
+  index?: number;
+  variant?: "grid" | "list";
+}
+
+const { post, featured = false, index = 0, variant = "grid" } = Astro.props;
+const image = getPostImage(post);
+const postUrl = getPostUrl(post);
+---
+
+<article class:list={["post-card", `post-card-${variant}`, { featured, reverse: variant === "list" && index % 2 === 1 }]}>
+  <a class="post-card-link" href={postUrl} aria-label={`阅读文章：${post.data.title}`}>
+    <div class="post-card-media">
+      <img src={image} alt="" loading="lazy" />
+    </div>
+    <div class="post-card-body">
+      <h2>{post.data.title}</h2>
+      <span class="post-card-category">{post.data.category}</span>
+    </div>
+  </a>
+</article>

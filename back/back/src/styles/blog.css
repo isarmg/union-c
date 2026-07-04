@@ -1,0 +1,717 @@
+/* 博客管理界面：用二级菜单把文章和分类标签拆开，避免所有表单同时堆叠。 */
+/* 工具栏：左侧导航按钮 + 右侧上下文操作按钮同行 */
+.blog-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+/* 右侧上下文操作区：按钮靠右，不拉伸 */
+.blog-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+}
+
+.blog-toolbar-actions .action-button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  gap: 5px;
+}
+
+/* 工具栏内的筛选控件：缩减宽度和高度 */
+.blog-toolbar-actions .blog-inline-filter {
+  grid-template-columns: auto minmax(100px, 160px);
+}
+.blog-toolbar-actions .blog-inline-search {
+  grid-template-columns: auto minmax(140px, 220px);
+}
+.blog-toolbar-actions .blog-inline-filter select,
+.blog-toolbar-actions .blog-featured-filter,
+.blog-toolbar-actions .search-box input {
+  min-height: 30px;
+  font-size: 12px;
+}
+.blog-toolbar-actions .blog-featured-filter {
+  padding: 0 8px;
+}
+.blog-toolbar-actions .blog-inline-filter > span:first-child {
+  font-size: 12px;
+}
+
+.blog-filter-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.blog-filter-toolbar.in-panel {
+  margin: 0 0 14px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+
+.blog-featured-filter {
+  min-height: 36px;
+  margin: 0;
+  padding: 0 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+
+.blog-inline-filter {
+  display: inline-grid;
+  /* 两列：左列（标签文字）自适应宽度，右列（下拉框）最小 180px 最大 260px。
+   * minmax(最小值, 最大值) 让下拉框在一定范围内弹性伸缩，不至于太窄或太宽。 */
+  grid-template-columns: auto minmax(180px, 260px);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.blog-inline-filter > span:first-child {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.blog-inline-filter select {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: 0;
+}
+
+.blog-inline-search {
+  grid-template-columns: auto minmax(220px, 360px);
+}
+
+.blog-inline-search .search-box {
+  width: 100%;
+}
+
+.blog-inline-search .search-box input {
+  width: 100%;
+}
+
+.blog-admin-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.blog-list-panel,
+.blog-home-panel,
+.blog-editor-panel,
+.blog-taxonomy-panel {
+  min-width: 0;
+}
+
+.blog-panel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 14px;
+}
+
+/* 发布/存草稿按钮：自然宽度并排，不拉伸占满行宽。
+ * 父级 .blog-panel-actions 用了 display: flex，子元素默认会按 flex 规则分配空间。
+ * flex: 0 0 auto 让这两个按钮保持自身文字内容的宽度，不去填满整行空间。 */
+.blog-panel-actions > .action-button {
+  flex: 0 0 auto;
+}
+
+.blog-home-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.blog-home-form .inline-field {
+  margin-top: 0;
+}
+
+.blog-home-form .wide {
+  grid-column: 1 / -1;
+}
+
+.blog-taxonomy-panel:not(.blog-section-hidden) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.blog-taxonomy-panel > .loading-block {
+  grid-column: 1 / -1;
+}
+
+.blog-taxonomy-panel > .taxonomy-section {
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.blog-category-block-grid {
+  grid-column: 1 / -1;  /* 在父网格中横跨全部列 */
+  /* display / grid-template-columns / gap: 来自统一规则 */
+}
+
+/* 博客板块导航卡片 */
+.blog-section-card {
+  cursor: pointer;
+  color: var(--text);
+  text-align: left;
+}
+.blog-section-card:hover { border-color: var(--text); }
+.blog-section-card.active { background: var(--surface); border-color: var(--text); }
+
+/* 主页配置内容块：内容可点击/输入 */
+.blog-home-card { color: var(--text); }
+
+/* 内容块内的单行输入：透明底、无边框，融入卡片 */
+.blog-home-card .card-row-content .blog-home-input {
+  width: 100%;
+  min-width: 0;
+  font-size: inherit;
+  font-family: inherit;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid transparent;
+  outline: none;
+  padding: 0;
+  transition: border-bottom-color 0.15s;
+}
+.blog-home-card .card-row-content .blog-home-input:focus {
+  border-bottom-color: var(--primary);
+}
+.blog-home-card .card-row-content .blog-home-input::placeholder {
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+/* 文本块与通用内容框共用六行几何规则，label + textarea。 */
+.blog-home-text-block {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: repeat(6, minmax(0, 1fr));
+  grid-auto-rows: 0;
+  gap: 0;
+  padding-inline-start: var(--content-card-text-start);
+  padding-inline-end: var(--content-card-text-start);
+}
+
+.blog-home-text-label {
+  display: flex;
+  align-items: center;
+  font-size: var(--content-card-font-size);
+  line-height: 1.2;
+  color: var(--muted);
+}
+.blog-home-textarea {
+  grid-row: span 5;
+  min-height: 0;
+  resize: none;
+  border: none;
+  background: transparent;
+  outline: none;
+  padding: 0;
+  font-size: var(--content-card-font-size);
+  /* 1/12 卡高字号 × 2 = 1/6 卡高，多行文字与六行网格对齐。 */
+  line-height: 2;
+  color: var(--text);
+  font-family: inherit;
+}
+
+.blog-category-block {
+  min-width: 0;
+  width: 100%;
+  color: var(--text);
+  text-align: left;
+  /* aspect-ratio / border-radius / overflow / border / background / position: 来自统一规则 */
+}
+
+.blog-category-block.clickable {
+  cursor: pointer;
+}
+
+.blog-category-block.clickable:hover {
+  background: var(--surface);
+  border-color: var(--text);
+}
+
+.blog-category-block.clickable:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.blog-category-block.system {
+  border-color: var(--primary);
+}
+
+.blog-category-block.active {
+  background: var(--surface);
+  border-color: var(--text);
+}
+
+
+.blog-section-hidden,
+.blog-taxonomy-panel.blog-section-hidden {
+  display: none;
+}
+
+
+.blog-post-list-item {
+  width: 100%;
+  min-width: 0;
+  color: var(--text);
+  text-align: left;
+  /* aspect-ratio / border-radius / overflow / border / background / position: 来自统一规则 */
+}
+
+.blog-post-list-item.active {
+  background: var(--surface);
+  border-color: #111;
+}
+
+.blog-post-list-meta {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.card-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 3px;
+  width: 100%;
+  align-self: center;
+}
+
+.card-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3em;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 0.4em;
+  /* 统一为轮廓按钮：透明底 + 圆角矩形描边 */
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.4em;
+  font-size: inherit;   /* 继承 card-inner 的六等分自适应字号 */
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.card-action-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-action-button.primary {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: transparent;
+}
+
+.card-action-button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: transparent;
+}
+
+.card-action-button:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.card-action-button.primary:hover {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.card-action-button.danger:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+/* 分类徽章：与标签同样的 chip 样式，但使用红色边框和文字 */
+.blog-post-list-meta {
+  display: inline-flex;
+  align-items: center;
+  /* justify-self: start 是 Grid 子元素的对齐属性（区别于 Flex 里的 justify-content）。
+   * 默认 Grid 子元素会拉伸填满整个列（stretch），
+   * start 让这个徽章只占文字内容所需的宽度，不会撑满整格。 */
+  justify-self: start;
+  min-height: 22px;
+  max-width: 100%;
+  padding: 2px 7px;
+  color: var(--danger);
+  background: var(--surface);
+  border: 1px solid var(--danger);
+  border-radius: 8px;  /* 0.5 × 22px（高度，较短边） */
+  font-size: 11px;
+  overflow: hidden;
+}
+
+/* TickerText 的 ticker-outer 是 block，在 inline-flex 内需要改为 inline 才能随内容收缩 */
+.blog-post-list-meta .ticker-outer {
+  display: inline;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.blog-post-list-meta .ticker-static {
+  display: inline;
+}
+
+.blog-post-list-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 26px;
+  overflow: hidden;
+}
+
+.blog-post-list-tags em,
+.tag-chip span {
+  font-style: normal;
+}
+
+.blog-post-list-tags em {
+  min-height: 22px;
+  padding: 2px 7px;
+  color: var(--primary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;  /* 0.5 × 22px（高度，较短边） */
+  font-size: 11px;
+}
+
+.blog-editor-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.blog-editor-form .inline-field {
+  margin-top: 0;
+}
+
+.blog-editor-form .wide,
+.blog-editor-form .content-field {
+  grid-column: 1 / -1;
+}
+
+.blog-editor-meta-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.blog-editor-meta-row input {
+  min-width: 0;
+}
+
+.blog-editor-form .content-field textarea {
+  min-height: 420px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+/* ── 分类卡片内联编辑 ── */
+
+/* 双击可编辑元素（分类名、标签名） */
+.taxonomy-editable {
+  cursor: default;
+  user-select: none;
+}
+.taxonomy-editable:hover {
+  text-decoration: underline dotted var(--muted);
+}
+
+/* "标签"label 双击提示 */
+.taxonomy-label-clickable {
+  cursor: default;
+  user-select: none;
+  display: block;
+}
+.taxonomy-label-clickable:hover:not(.taxonomy-label-full) {
+  color: var(--primary);
+}
+/* 标签区已满：label 变成警告色提示无法添加 */
+.taxonomy-label-full {
+  color: var(--warn);
+  cursor: not-allowed;
+}
+
+/* 内联重命名输入框：透明底，仅底部线 */
+.taxonomy-inline-input {
+  width: 100%;
+  min-width: 0;
+  font-size: inherit;
+  font-family: inherit;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--primary);
+  outline: none;
+  padding: 0;
+}
+
+/* 分类名旁的删除按钮 */
+.taxonomy-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: auto;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.1s, color 0.1s;
+}
+.blog-category-block:hover .taxonomy-delete-btn {
+  opacity: 1;
+}
+.taxonomy-delete-btn:hover { color: var(--danger); }
+
+/* 标签列表（内联 span，空格间隔） */
+.taxonomy-tag-list {
+  font-size: inherit;
+  line-height: 1.7;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+/* 单个标签项（标签名 + × 按钮） */
+.taxonomy-tag-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  margin-right: 4px;
+  font-size: inherit;
+}
+
+/* 标签内联重命名输入框（自适应宽度） */
+.taxonomy-tag-input {
+  width: 6em;
+}
+
+/* 标签 × 删除按钮 */
+.taxonomy-tag-delete {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  line-height: 1;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 1px;
+  opacity: 0;
+  transition: opacity 0.1s, color 0.1s;
+}
+.taxonomy-tag-item:hover .taxonomy-tag-delete { opacity: 1; }
+.taxonomy-tag-delete:hover { color: var(--danger); }
+
+.taxonomy-section {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.taxonomy-section:first-of-type {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.taxonomy-section > strong {
+  font-size: 14px;
+}
+
+.tag-cloud.compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 9px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  font-size: 12px;
+}
+
+.tag-chip:hover {
+  border-color: var(--primary);
+}
+
+.tag-chip.active,
+.tag-chip.selected {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+  border-color: var(--primary);
+}
+
+.tag-chip span {
+  color: var(--primary);
+  font-weight: 800;
+}
+
+.tag-chip.special {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+}
+
+.tag-chip.special svg {
+  flex: 0 0 auto;
+}
+
+.tag-chip.special.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border-color: var(--accent);
+}
+
+.taxonomy-inline-palette,
+.taxonomy-create-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.taxonomy-inline-palette {
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+
+.muted-inline {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.taxonomy-create-row input {
+  flex: 1 1 130px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  outline: 0;
+}
+
+.taxonomy-create-row input:disabled,
+.taxonomy-edit-row input:disabled,
+.blog-editor-form input:disabled {
+  color: var(--subtle);
+  background: color-mix(in srgb, var(--surface-strong) 72%, var(--surface));
+}
+
+.taxonomy-edit-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.taxonomy-edit-row input {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  outline: 0;
+}
+
+/* 表格通用样式：用于文章列表、分类统计等密集信息展示。 */
+.table-wrap {
+  /* overflow-x: auto 使容器在内容超宽时出现横向滚动条，
+   * 而不是让表格撑破外层布局。必须配合 table { min-width } 使用。 */
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+
+table {
+  width: 100%;
+  /* border-collapse: collapse 合并相邻单元格的边框，避免出现双线边框。
+   * 默认是 separate（每个单元格有独立边框），collapse 让边框只画一条。 */
+  border-collapse: collapse;
+  min-width: 760px; /* 表格最窄 760px，超出外层容器时由 .table-wrap 提供横向滚动 */
+}
+
+th,
+td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+th {
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+td {
+  font-size: 13px;
+}
+
+tr:last-child td {
+  border-bottom: 0;
+}
+

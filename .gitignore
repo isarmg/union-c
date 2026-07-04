@@ -1,0 +1,25 @@
+# Build outputs and dependency caches
+**/target/
+**/node_modules/
+**/dist/
+**/dist.next/
+**/dist.previous/
+**/.astro/
+**/.vite/
+
+# Runtime state is created by union on Linux and never belongs in source control
+data/
+
+# Local environment files (only the documented template is versioned)
+.env*
+!.env.production.example
+
+# Editor and coding-agent state
+.idea/
+.vscode/
+.claude/
+.codex/
+.agents/
+
+# Local binary assets
+WOFF2/

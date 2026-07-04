@@ -1,0 +1,15 @@
+/* Sunshine 与 Proxmox 共用的卡片旁浮动面板结构。 */
+
+.adjacent-cards-outer {
+  position: relative;
+  overflow: visible;
+}
+
+.adjacent-panel {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}

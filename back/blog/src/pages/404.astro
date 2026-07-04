@@ -1,0 +1,13 @@
+---
+import BaseLayout from "@layouts/BaseLayout.astro";
+import { withBase } from "@lib/urls";
+---
+
+<BaseLayout title="未找到页面 | Union Notes" description="请求的页面不存在。">
+  <section class="page-heading">
+    <p class="eyebrow">404</p>
+    <h1>页面不存在</h1>
+    <p>可能是文章路径已经调整，或当前内容还没有发布。</p>
+    <a class="button primary" href={withBase("/")}>返回首页</a>
+  </section>
+</BaseLayout>

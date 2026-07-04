@@ -1,0 +1,60 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build Linux x86_64
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: rustup show
+
+      - name: Test union
+        run: cargo test --manifest-path back/union/Cargo.toml --all-targets --locked
+
+      - name: Build union
+        run: cargo build --manifest-path back/union/Cargo.toml --release --locked
+
+      - name: Test ram
+        run: cargo test --manifest-path back/ram/Cargo.toml --all-targets --locked
+
+      - name: Build ram
+        run: cargo build --manifest-path back/ram/Cargo.toml --release --locked
+
+      - name: Package
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          PACKAGE="union-${VERSION}-linux-x86_64"
+
+          mkdir -p "${PACKAGE}/bin"
+          install -m 0755 back/union/target/release/union "${PACKAGE}/bin/union"
+          install -m 0755 back/ram/target/release/ram "${PACKAGE}/bin/ram"
+
+          cp README.md "${PACKAGE}/"
+          cp -r config "${PACKAGE}/"
+          cp .env.production.example "${PACKAGE}/"
+
+          tar -czf "${PACKAGE}.tar.gz" "${PACKAGE}"
+          sha256sum "${PACKAGE}.tar.gz" > "${PACKAGE}.tar.gz.sha256"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            union-${GITHUB_REF_NAME}-linux-x86_64.tar.gz \
+            union-${GITHUB_REF_NAME}-linux-x86_64.tar.gz.sha256 \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes

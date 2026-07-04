@@ -1,0 +1,51 @@
+---
+import BaseLayout from "@layouts/BaseLayout.astro";
+import { withBase } from "@lib/urls";
+---
+
+<BaseLayout title="关于 | Union Notes" description="关于 Union Notes 和局域网union的写作范围。">
+  <section class="page-heading">
+    <p class="eyebrow">About</p>
+    <h1>关于 blog</h1>
+    <p>这是 Union 的实践记录区，关注控制面设计、服务集成、权限边界和长期维护。</p>
+  </section>
+  <section class="content-band about-grid">
+    <div class="prose narrow">
+      <h2>写作范围</h2>
+      <p>
+        blog 用于记录本地网络中的自托管实践：Rust 管理后端、ram 文件服务、Astro 静态内容、Sunshine/Moonlight 串流入口，以及后续接入的开源组件。
+      </p>
+      <p>
+        blog 不承担控制动作。启动、停止、唤醒、构建和审计等操作由 Rust 管理后端处理；这里负责把经验、决策和运行手册沉淀成可检索的静态页面。
+      </p>
+      <h2>内容原则</h2>
+      <ul>
+        <li>先记录可复现的配置和边界，再补充背景判断。</li>
+        <li>优先写清楚为什么这么设计，而不是只罗列命令。</li>
+        <li>把账号、权限、日志、备份和恢复流程作为长期维护的一部分。</li>
+      </ul>
+    </div>
+    <aside class="about-card">
+      <h2>技术栈</h2>
+      <dl>
+        <div>
+          <dt>框架</dt>
+          <dd>Astro + MDX</dd>
+        </div>
+        <div>
+          <dt>内容</dt>
+          <dd>PostgreSQL + blog/content</dd>
+        </div>
+        <div>
+          <dt>搜索</dt>
+          <dd>Pagefind</dd>
+        </div>
+        <div>
+          <dt>订阅</dt>
+          <dd>sitemap</dd>
+        </div>
+      </dl>
+      <a class="button primary" href={withBase("/archive/")}>查看全部文章</a>
+    </aside>
+  </section>
+</BaseLayout>

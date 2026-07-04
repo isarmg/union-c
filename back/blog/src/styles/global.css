@@ -1,0 +1,2382 @@
+/*
+ * 博客全局样式。
+ *
+ * 阅读方式：
+ * - 前半段是通用博客布局：头部、正文卡片、文章页、归档、搜索、页脚。
+ * - 后半段是首页的 Poetize 风格增强：首屏、侧栏、推荐卡片、入口卡片。
+ * - class 名通常和 Astro 组件中的结构对应，例如 .post-card 对应 PostCard.astro。
+ */
+/* 全站基础变量：颜色、阴影、圆角和字体都从这里统一管理。 */
+/*
+ * :root 选择器代表文档的根元素（即 <html>），在这里定义 CSS 变量（--xxx）
+ * 可以让它们在整个页面的任意位置通过 var(--xxx) 使用，相当于全局常量。
+ * 把设计系统的所有"配置值"集中在这里，改一处即可全站生效。
+ */
+:root {
+  /* 告诉浏览器此页面默认使用亮色模式。
+   * 这会影响浏览器原生 UI 的颜色，例如滚动条、表单控件（input、select、checkbox）。
+   * 如果不设置，某些浏览器在深色系统下可能自动切换到暗色原生控件。 */
+  color-scheme: light;
+  --bg: #f8fbff;
+  --bg-soft: #eef8f6;
+  /* rgb() 中用 / 分隔的参数是 Alpha 透明度，0.92 表示 92% 不透明。 */
+  --surface: rgb(255 255 255 / 0.92);
+  --surface-solid: #ffffff;
+  --surface-tint: #f5fbff;
+  --ink: #1e2730;   /* 主文字色：深蓝灰，比纯黑 #000 柔和，减少眼睛疲劳 */
+  --muted: #667482; /* 次要文字色：灰色调，用于日期、描述等辅助信息 */
+  --subtle: #93a0aa; /* 更淡的灰，用于占位符、装饰性标签 */
+  --border: rgb(104 132 148 / 0.18); /* 半透明边框：透过边框可以看到背景，营造玻璃质感 */
+  --primary: #ff8a4c;        /* 主题色：橙色，用于强调、链接、按钮 */
+  --primary-strong: #f05f42; /* 更深的橙红，用于 hover 状态或更强调的场景 */
+  --aqua: #39c5bb;
+  --blue: #4385f5;
+  --rose: #ff6b9a;
+  --green: #37a36b;
+  /* 阴影变量：两层阴影，正常和 hover 状态各一套。
+   * 格式：x偏移 y偏移 模糊半径 颜色。y=18px 表示阴影向下偏移，营造"浮起"感。 */
+  --shadow: 0 18px 42px rgb(57 76 96 / 0.12);
+  --shadow-hover: 0 24px 56px rgb(57 76 96 / 0.18);
+  /* 毛玻璃半透明白色：0.64 表示 64% 不透明，配合 backdrop-filter 产生磨砂玻璃效果。 */
+  --glass: rgb(255 255 255 / 0.64);
+  /* 把固定头部高度存成变量，方便其他元素（如正文顶部 padding）引用。
+   * 如果头部高度改了，只需修改这一行，不用到处找硬编码的 76px。 */
+  --header-h: 76px;
+  /* Linux 优先使用 Noto 中文字体，缺失时回退到系统无衬线字体。 */
+  --font-sans: "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.55; /* 行高为字体大小的 1.55 倍，中文阅读的舒适值约在 1.5-1.8 之间 */
+  /* 关闭浏览器的"伪粗体"和"伪斜体"。
+   * 浏览器在找不到真正的粗体/斜体字重时，会用算法模拟，效果通常很难看。
+   * 设置 none 后，只有字体文件本身有对应字重时才会生效。 */
+  font-synthesis: none;
+  text-rendering: optimizeLegibility; /* 优先渲染字形可读性，在大字号下效果更明显 */
+  -webkit-font-smoothing: antialiased; /* WebKit 浏览器（Safari/Chrome）抗锯齿，让文字更细腻 */
+}
+
+/*
+ * 通用盒模型重置：让 padding 和 border 包含在元素宽高之内。
+ *
+ * 浏览器默认使用 content-box：width 只计算内容区，padding 和 border 会额外增加元素尺寸。
+ * 例如：width: 200px + padding: 20px = 实际占 240px，超出预期。
+ * border-box 则让 width: 200px 包含 padding 和 border，更符合直觉，也更容易排版。
+ * * 选择器匹配所有元素，配合 ::before/::after 确保伪元素也受影响。
+ */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  /* 点击锚点链接（如 #section1）时，平滑滚动到目标位置，而不是瞬间跳转。
+   * 注意：prefers-reduced-motion 媒体查询会在下面禁用这个效果。 */
+  scroll-behavior: smooth;
+  /* 防止移动端浏览器在横屏或缩放时自动调大字体大小。
+   * 100% 表示"不要调整"，保持我们设定的 font-size。 */
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%; /* Safari 需要加 -webkit- 前缀 */
+}
+
+/*
+ * 分层背景技巧：body 本体 + body::before + body::after 三层叠加。
+ *
+ * 层级从低到高（z-index 越小越靠后）：
+ *   body::before（z-index: -2）— 背景图层，显示用户上传的封面图，透明度 18%
+ *   body::after（z-index: -1）— 底部渐变蒙版，消除背景图硬边界
+ *   body 本体（z-index 默认）— 半透明白色渐变，叠在背景图上方，保证文字可读
+ *
+ * 为什么不直接把背景图放在 body 上？
+ * 因为需要单独控制背景图的透明度（opacity），直接写在 body 会连文字一起变透明。
+ * 用 ::before 伪元素单独设置 opacity，只让"这一层"变淡，不影响上面的内容。
+ */
+body {
+  margin: 0; /* 浏览器给 body 默认添加 8px margin，重置为 0 以精确控制布局 */
+  min-width: 320px; /* 防止在极小屏（如旧手机）上布局崩溃，320px 是最小支持宽度 */
+  font-family: var(--font-sans);
+  line-height: 1.55;
+  color: var(--ink);
+  /* body 本体背景：从上到下的柔和渐变，叠在最底层背景图之上，半透明遮盖让页面底色统一 */
+  background:
+    linear-gradient(180deg, rgb(248 251 255 / 0.95), rgb(239 248 246 / 0.98)),
+    var(--bg);
+  /* 防止长文本（中文、长 URL）撑破容器。
+   * anywhere 是最激进的断行策略：即使单个单词/URL 超宽，也在任意位置换行。
+   * 比 break-word 更彻底，适合中文混排和代码场景。 */
+  overflow-wrap: anywhere;
+}
+
+body::before {
+  content: ""; /* 伪元素必须有 content 属性才能被渲染，空字符串即可 */
+  position: fixed; /* 固定定位：背景图不随页面内容滚动，始终铺满视口 */
+  inset: 0;        /* inset: 0 是 top/right/bottom/left: 0 的简写，让元素铺满父容器 */
+  z-index: -2;     /* 最底层，在所有内容之下 */
+  background:
+    linear-gradient(120deg, rgb(255 255 255 / 0.9), rgb(230 249 248 / 0.72)),
+    /* --site-background-image 由 BaseLayout.astro 注入到 body 的内联 style 属性里，
+     * 格式类似：style="--site-background-image: url('/images/bg.jpg')"
+     * 这样可以在每个页面动态更换背景图，不需要修改 CSS 文件。 */
+    var(--site-background-image) center / cover no-repeat;
+  opacity: 0.18; /* 只让背景图若隐若现（18% 不透明度），避免干扰页面内容阅读 */
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  /* inset: auto 0 0 对应 top: auto, right: 0, bottom: 0, left: 0
+   * top: auto 表示不限制顶部，元素高度由下面的 height 属性决定，贴在视口底部。 */
+  inset: auto 0 0;
+  z-index: -1; /* 在背景图（-2）上面，在正文内容下面 */
+  height: 48vh; /* 占视口高度 48%，覆盖下半部分 */
+  /* 底部渐变蒙版：从透明渐变到与背景色相近的颜色，
+   * 视觉上让背景图"消融"进页面底色，消除背景图下边界的硬边。 */
+  background: linear-gradient(180deg, transparent, rgb(248 251 255 / 0.96));
+  pointer-events: none; /* 让鼠标事件穿透这个蒙版，不影响下方元素的点击操作 */
+}
+
+/* 基础元素：链接、图片和正文容器的默认行为。 */
+a {
+  color: inherit; /* 链接颜色继承父元素，而不是浏览器默认的蓝色 */
+  text-decoration: none; /* 去掉下划线，样式由各组件自行决定 */
+}
+
+button,
+input,
+select,
+textarea {
+  /* 表单元素默认不继承父元素字体，浏览器会用系统默认字体渲染。
+   * font: inherit 让它们和页面其他文字保持一致，避免字体突然变化。
+   * line-height: inherit 同理，防止行高不一致导致输入框高度错误。 */
+  font: inherit;
+  line-height: inherit;
+}
+
+img {
+  display: block; /* img 使用块级布局，消除 inline 基线对齐产生的底部空隙。 */
+  max-width: 100%; /* 图片最大不超过容器宽度，防止溢出容器。响应式布局的基础。 */
+}
+
+/*
+ * 全局 margin 重置：浏览器给这些元素设置了默认 margin（外边距）。
+ * 例如 h1 默认有 top/bottom margin，p 也有。这些默认值在各浏览器间不统一，
+ * 全部重置为 0 后，由具体组件的 CSS 精确控制间距，避免"莫名其妙的空白"。
+ */
+h1,
+h2,
+h3,
+p,
+dl,
+dd,
+ol,
+ul {
+  margin: 0;
+}
+
+h1,
+h2,
+h3 {
+  overflow-wrap: anywhere; /* 超长标题（如无空格的英文）在任意位置换行，防止溢出 */
+  /* 让标题文本在多行时换行更均衡，避免最后一行只有一两个字的"孤行"现象。
+   * 例如未平衡时可能是：第一行 10 个字 / 第二行 2 个字
+   * balance 后：第一行 6 个字 / 第二行 6 个字，视觉更美观。 */
+  text-wrap: balance;
+}
+
+/*
+ * 这些内联/块级文本元素都加上 overflow-wrap: anywhere，
+ * 确保中文、长 URL、代码等内容不会撑破弹性布局容器。
+ * 中文没有空格，如果不设置，一长串汉字会被视为"一个单词"而不换行。
+ */
+p,
+li,
+dt,
+dd,
+label,
+button,
+input,
+select,
+textarea,
+a,
+span,
+strong,
+small {
+  overflow-wrap: anywhere;
+}
+
+main {
+  min-height: calc(100vh - 180px);
+}
+
+/* 统一页面宽度：头部、页脚、内容带和文章页都使用同一套最大宽度。 */
+.site-header,
+.site-footer,
+.content-band,
+.page-heading,
+.article-shell {
+  /*
+   * min() 函数取两个值中较小的那个：
+   *   - 1440px：最大内容宽度，在宽屏上不超过这个值，防止行太长影响阅读。
+   *   - calc(100% - 28px)：视口宽度减去 28px（左右各 14px 边距）。
+   * 含义：小屏时保持 14px 左右边距，大屏时限制最大宽度为 1440px。
+   * 比传统的 max-width + padding 写法更简洁，不需要两个属性配合。
+   */
+  width: min(1440px, calc(100% - 28px));
+  margin-inline: auto; /* margin-inline 是 margin-left + margin-right 的简写，auto 实现水平居中 */
+}
+
+/* 顶部导航：固定在页面顶部，滚动时保持可见。 */
+.site-header {
+  position: fixed;  /* 固定定位：脱离文档流，相对于视口定位，滚动时不跟随页面移动 */
+  top: 12px;        /* 距视口顶部 12px，留出一点空间，不完全贴顶 */
+  left: 50%;        /* 先把元素左边缘移到视口中间... */
+  z-index: 20;      /* 层叠顺序 20，确保导航浮在页面内容（通常 z-index 为 0-10）之上 */
+  display: flex;
+  align-items: center;      /* 垂直方向居中对齐 flex 子项（logo、导航链接） */
+  justify-content: space-between; /* 水平方向：logo 靠左，导航靠右 */
+  gap: 24px;
+  min-height: 64px;
+  padding: 10px 14px;
+  background: var(--glass); /* 半透明白色背景，配合下面的 backdrop-filter 实现毛玻璃效果 */
+  border: 1px solid rgb(255 255 255 / 0.62); /* 半透明白色边框，强化玻璃质感 */
+  border-radius: 8px;
+  box-shadow: 0 12px 34px rgb(42 61 78 / 0.12);
+  /* ...再用 transform 往左移动自身宽度的 50%，实现水平居中。
+   * 这是固定定位元素居中的经典技巧：left: 50% + translateX(-50%)。
+   * 不能用 margin: auto，因为 fixed 元素脱离了文档流。 */
+  transform: translateX(-50%);
+  /* 毛玻璃效果：对元素背后的内容应用 18px 模糊。
+   * 需要配合半透明背景（--glass）才能看到效果，
+   * 完全不透明的背景会遮住背后内容，模糊也就没有意义了。 */
+  backdrop-filter: blur(18px);
+  /* 页面加载时触发 headerDrop 动画（定义在下方 @keyframes 里），
+   * 导航栏从顶部滑入，持续 0.5s，both 表示动画开始前和结束后都保持关键帧的状态。 */
+  animation: headerDrop 0.5s ease both;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+}
+
+.brand-mark {
+  display: block;
+  width: 42px;
+  height: 42px;
+  border: 2px solid rgb(255 255 255 / 0.72);
+  border-radius: 50%; /* 50% 让矩形变成圆形，头像的标准写法 */
+  box-shadow: 0 8px 18px rgb(240 95 66 / 0.25);
+  object-fit: cover;  /* 头像图片填满圆形容器，多余部分裁剪，不变形 */
+  flex-shrink: 0;     /* 禁止在 flex 容器中被压缩，保证 logo 始终是 42x42 */
+}
+
+nav {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+nav a {
+  min-height: 34px; /* 保证最小点击区域高度，移动端触控友好（建议至少 44px，这里稍小） */
+  padding: 7px 11px;
+  color: #354250;
+  border: 1px solid transparent; /* 透明边框：hover 时变成有颜色的边框，不会因为边框出现而撑开布局 */
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
+  /*
+   * transition 过渡动画：列出要过渡的属性、时长和缓动函数。
+   * 格式：属性名 时长 缓动函数
+   * 多个属性用逗号分隔，只有在此列出的属性才会有过渡效果（其他属性立即变化）。
+   * 0.2s ease：0.2 秒，ease 缓动（先快后慢）。
+   */
+  transition:
+    color 0.2s ease,
+    background 0.2s ease,
+    transform 0.2s ease,
+    border-color 0.2s ease;
+}
+
+nav a:hover,
+nav a.active {
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+  border-color: rgb(255 255 255 / 0.72);
+  transform: translateY(-1px); /* 向上移动 1px，产生轻微"弹起"的交互感 */
+}
+
+/* 首屏 Hero 的基础布局；poetize-hero 在此基础上增加首页视觉细节。 */
+.hero {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 100svh;
+  overflow: hidden;
+  color: #ffffff;
+  background: #1f2730;
+}
+
+.hero img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* object-fit: cover 让图片填满容器且保持比例，超出部分裁剪掉。
+   * 类似 background-size: cover，但用于 <img> 标签。
+   * 相比 background-image，<img> 对 SEO 和无障碍访问更友好（支持 alt 属性）。 */
+  object-fit: cover;
+  filter: saturate(1.08) brightness(0.88); /* 微调色彩：稍微提高饱和度、降低亮度，让图片更有电影感 */
+  animation: heroImage 1.2s ease both; /* 入场时从放大状态（scale 1.05）缓慢还原到 1，产生呼吸感 */
+}
+
+/*
+ * .hero::before — 渐变蒙版伪元素，压暗背景图让文字可读
+ *
+ * 为什么用伪元素而不直接叠加 <div>？
+ * 伪元素不占 HTML 结构，纯 CSS 实现，更简洁。
+ * ::before 会作为 .hero 的第一个子元素，z-index: 1 浮在图片（默认 z-index: 0）之上。
+ */
+.hero::before {
+  content: ""; /* 伪元素没有 content 就不会渲染，空字符串是让它出现的最小写法 */
+  position: absolute;
+  inset: 0;
+  z-index: 1; /* 在背景图上方，在文字（z-index: 3）下方 */
+  background:
+    /* 垂直方向渐变蒙版：顶部和底部较暗（0.45/0.62），中间较透明（0.26），
+     * 这样顶部导航区和底部文字区都有足够对比度，中间保留背景图的细节。 */
+    linear-gradient(180deg, rgb(22 28 36 / 0.45), rgb(22 28 36 / 0.26) 45%, rgb(22 28 36 / 0.62)),
+    /* 斜向彩色蒙版：左侧橙色渐变、右侧青色渐变，在视觉上增加品牌色氛围 */
+    linear-gradient(120deg, rgb(255 138 76 / 0.38), transparent 48%, rgb(57 197 187 / 0.28));
+}
+
+/*
+ * .hero::after — 底部波浪裁剪，让 Hero 和下方内容之间的过渡更自然
+ *
+ * clip-path: polygon(...) 用多边形坐标裁剪元素，超出多边形范围的部分不显示。
+ * 坐标格式：(x% y%, x% y%, ...)，从左上角顺时针定义顶点。
+ * 最后两个点 (100% 100%, 0 100%) 是右下角和左下角，确保底部完整填充。
+ * 中间的锯齿点模拟波浪形状，left/right 超出 100% 是为了防止圆角边出现在视口内。
+ */
+.hero::after {
+  content: "";
+  position: absolute;
+  left: -4%;   /* 向左超出 4%，避免波浪两端出现缺口 */
+  right: -4%;
+  bottom: -1px; /* 向下 1px，消除背景色和波浪之间可能出现的 1px 间隙（像素渲染误差） */
+  z-index: 2;   /* 在蒙版（z-index: 1）上方，在文字（z-index: 3）下方 */
+  height: 88px;
+  background: var(--bg); /* 用页面背景色填充，制造出"页面从波浪处开始"的视觉效果 */
+  /* polygon 多边形裁剪：点从左向右沿顶部波浪线排列，最后收口到矩形底部 */
+  clip-path: polygon(0 58%, 10% 48%, 22% 63%, 34% 42%, 48% 61%, 62% 45%, 76% 58%, 88% 40%, 100% 55%, 100% 100%, 0 100%);
+}
+
+.hero-copy {
+  position: relative;
+  z-index: 3;
+  width: min(940px, calc(100% - 32px));
+  margin-inline: auto;
+  padding: 120px 0 132px;
+  text-align: center;
+  animation: fadeUp 0.7s ease 0.08s both;
+}
+
+.eyebrow {
+  margin-bottom: 12px;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.hero .eyebrow {
+  color: #ffe5d5;
+  text-shadow: 0 3px 14px rgb(0 0 0 / 0.22);
+}
+
+h1 {
+  font-family: var(--font-sans);
+  font-size: 56px;
+  line-height: 1.12;
+  font-weight: 900;
+}
+
+.hero-copy > p:not(.eyebrow) {
+  max-width: 710px;
+  margin: 24px auto 0;
+  color: rgb(255 255 255 / 0.9);
+  font-size: 20px;
+  line-height: 1.9;
+  text-shadow: 0 3px 16px rgb(0 0 0 / 0.25);
+}
+
+.hero-actions,
+.subscribe-actions,
+.profile-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.button,
+.read-more,
+.profile-links a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 15px;
+  color: var(--ink);
+  background: var(--surface-solid);
+  line-height: 1.25;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-weight: 850;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+.button:hover,
+.read-more:hover,
+.profile-links a:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgb(57 76 96 / 0.14);
+}
+
+.button.primary {
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+  border-color: transparent;
+}
+
+.hero .button {
+  color: #ffffff;
+  background: rgb(255 255 255 / 0.18);
+  border-color: rgb(255 255 255 / 0.42);
+  backdrop-filter: blur(12px);
+}
+
+.hero .button.primary {
+  background: linear-gradient(135deg, var(--primary), var(--rose));
+  border-color: transparent;
+}
+
+.hero-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 130px));
+  justify-content: center;
+  gap: 12px;
+  margin-top: 34px;
+}
+
+.hero-stats div {
+  padding: 12px;
+  background: rgb(255 255 255 / 0.18);
+  border: 1px solid rgb(255 255 255 / 0.34);
+  border-radius: 8px;
+  backdrop-filter: blur(12px);
+}
+
+.hero-stats dt {
+  color: #ffffff;
+  font-size: 25px;
+  font-weight: 900;
+}
+
+.hero-stats dd {
+  margin-top: 3px;
+  color: rgb(255 255 255 / 0.76);
+  font-size: 12px;
+}
+
+.scroll-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 42px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  color: #ffffff;
+  border: 1px solid rgb(255 255 255 / 0.36);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  transform: translateX(-50%);
+  animation: softBounce 1.8s ease-in-out infinite;
+}
+
+/* 页面通用内容区：标题、分栏、卡片和空状态。 */
+.content-band,
+.page-heading,
+.article-shell {
+  padding-block: 46px;
+}
+
+.page-heading,
+.article-shell {
+  padding-top: 132px;
+}
+
+.page-heading {
+  animation: fadeUp 0.5s ease both;
+}
+
+.page-heading h1 {
+  color: var(--ink);
+  font-size: 50px;
+  line-height: 1.12;
+}
+
+.page-heading p:not(.eyebrow) {
+  max-width: 760px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.8;
+}
+
+/*
+ * 双栏布局：左侧主内容（更宽）+ 右侧侧边栏（更窄）。
+ * grid-template-columns 定义各列宽度：
+ *   - minmax(0, 1.45fr)：最小 0（内容不溢出），最大占 1.45 份弹性宽度
+ *   - minmax(280px, 0.78fr)：最小 280px（侧边栏不能太窄），最大占 0.78 份
+ * fr（fraction）是 Grid 布局的弹性单位，总份数 = 1.45 + 0.78 = 2.23fr，按比例分配剩余空间。
+ * align-items: start 让两栏都从顶部对齐，防止右侧侧边栏被拉伸到和左侧等高。
+ */
+.editorial-layout,
+.content-band.split,
+.search-layout,
+.about-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.78fr);
+  gap: 28px;       /* gap 代替传统的 margin，Grid/Flex 布局里只在元素之间生效，不会产生外边距叠加问题 */
+  align-items: start;
+}
+
+.intro-band {
+  margin-top: -26px;
+}
+
+.section-heading,
+.page-heading {
+  margin-bottom: 22px;
+}
+
+.section-heading.compact {
+  margin-bottom: 14px;
+}
+
+.section-heading h2 {
+  font-size: 36px;
+  line-height: 1.15;
+}
+
+/*
+ * 毛玻璃卡片的三要素：
+ * 1. background: var(--surface) — 半透明背景（92% 不透明的白色）
+ * 2. backdrop-filter: blur(14px) — 对背景内容进行 14px 模糊，产生磨砂玻璃的视觉效果
+ * 3. border: 1px solid rgb(255 255 255 / 0.72) — 半透明白色边框，模拟玻璃边缘的高光
+ * 三者缺一不可：纯透明背景看不到模糊，纯白背景看不出玻璃感，没有边框则缺少立体感。
+ */
+.lead-story,
+.note-panel,
+.about-card,
+.profile-card,
+.post-card,
+.archive-list a,
+.article-nav div,
+.toc {
+  background: var(--surface);
+  border: 1px solid rgb(255 255 255 / 0.72);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+}
+
+/* 只有可点击的卡片需要 transition，静态展示的面板（如 .toc、.note-panel）不需要 hover 动画 */
+.lead-story,
+.profile-card,
+.post-card,
+.archive-list a,
+.article-nav div {
+  /*
+   * transition 让 CSS 属性改变时产生过渡动画，而不是瞬间突变。
+   * 0.24s 略慢于 nav a 的 0.2s，卡片体积更大，动画稍慢更自然。
+   * 注意：只列出需要过渡的属性，"all" 虽然方便，但会影响性能（监听所有属性）。
+   */
+  transition:
+    transform 0.24s ease,
+    box-shadow 0.24s ease,
+    border-color 0.24s ease;
+}
+
+.lead-story:hover,
+.profile-card:hover,
+.post-card:hover,
+.archive-list a:hover,
+.article-nav div:hover {
+  border-color: rgb(255 138 76 / 0.38); /* 悬停时边框变成淡橙色，呼应主题色 */
+  box-shadow: var(--shadow-hover);       /* 切换到更大的阴影，加强"浮起"感 */
+  /* 向上移动 4px，产生"卡片被抬起"的效果。
+   * 用 transform 而不是 margin-top: -4px，因为 transform 由 GPU 处理，
+   * 不会触发页面重排（reflow），性能更好，动画更流畅。 */
+  transform: translateY(-4px);
+}
+
+.lead-story {
+  display: grid;
+  gap: 15px;
+  min-height: 270px;
+  padding: 28px;
+}
+
+.lead-story h2 {
+  max-width: 780px;
+  font-size: 48px;
+  line-height: 1.08;
+}
+
+.lead-story p:not(.eyebrow) {
+  max-width: 710px;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.85;
+}
+
+.profile-card {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 22px;
+  text-align: center;
+}
+
+.profile-card img {
+  width: 92px;
+  height: 92px;
+  object-fit: cover;
+  border: 4px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 12px 24px rgb(57 76 96 / 0.18);
+}
+
+.profile-card h2 {
+  font-size: 27px;
+}
+
+.profile-card p,
+.note-panel p {
+  color: var(--muted);
+  line-height: 1.75;
+}
+
+.empty-note {
+  padding: 18px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px dashed rgb(255 138 76 / 0.36);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(57 76 96 / 0.08);
+  line-height: 1.7;
+}
+
+/* 文章卡片与标签云：分类页、标签页、首页列表都会复用。 */
+.quick-index,
+.sidebar-stack,
+.category-sections {
+  display: grid;
+  gap: 18px;
+}
+
+/*
+ * 四列等宽卡片网格。
+ * repeat(4, minmax(0, 1fr))：重复 4 次，每列最小 0，最大 1fr（等分剩余空间）。
+ * 与 repeat(auto-fill, minmax(260px, 1fr)) 的区别：
+ *   - repeat(4, ...)：固定 4 列，不会自动换行，需要配合 @media 响应式断点调整
+ *   - repeat(auto-fill, ...)：列数自动计算，内容少时也能响应式，无需断点
+ * 这里用固定列数是因为这个网格在特定页面上有明确的视觉要求。
+ */
+.post-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.post-card {
+  display: block;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+}
+
+.post-card-link {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  color: inherit;
+}
+
+.post-card-media {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--surface-tint);
+}
+
+.post-card-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* 图片填充容器，超出裁剪，保持宽高比不变形 */
+  /* 只过渡 transform（缩放/移动），不过渡其他属性。
+   * 0.32s 比 hover 动画稍慢，营造"图片缓慢放大"的视觉体验。 */
+  transition: transform 0.32s ease;
+}
+
+/* 鼠标悬停时，图片放大到 1.06 倍（6%），配合父元素的 overflow: hidden 实现"放大不溢出"的效果 */
+.post-card:hover .post-card-media img {
+  transform: scale(1.06);
+}
+
+.post-card-media span {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  min-height: 28px;
+  padding: 5px 9px;
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--primary), var(--rose));
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.post-card > :not(.post-card-media) {
+  margin-inline: 17px;
+}
+
+.post-card > .post-card-link {
+  margin: 0;
+}
+
+.post-card > :last-child {
+  margin-bottom: 0;
+}
+
+.post-card.featured {
+  border-color: rgb(255 138 76 / 0.36);
+}
+
+.post-card-meta,
+.article-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.article-meta a,
+.post-card-meta span {
+  color: var(--primary-strong);
+  font-weight: 850;
+}
+
+/*
+ * 多行文本截断（line-clamp）：这是目前实现多行截断的标准 CSS 方法，虽然有 -webkit- 前缀，
+ * 但已被所有现代浏览器支持。必须配合这三个属性使用，缺一不可：
+ *   display: -webkit-box    — 特殊的 flex 容器，专为 line-clamp 设计
+ *   -webkit-box-orient: vertical — 让子元素垂直排列
+ *   -webkit-line-clamp: N  — 最多显示 N 行，超出部分用 "..." 代替
+ * 同时需要 overflow: hidden 隐藏超出的内容（否则 clamp 不生效）。
+ */
+.post-card h2 {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 21px;
+  line-height: 1.2;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2; /* 标题最多 2 行，超出显示省略号 */
+}
+
+.post-card h2 a:hover,
+.archive-list a:hover strong,
+.toc a:hover,
+.lead-story h2 a:hover,
+.prose a:hover {
+  color: var(--primary-strong); /* 悬停时文字变成深橙色，统一交互反馈 */
+}
+
+.post-card p {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2; /* 摘要也限制 2 行，保持卡片高度一致 */
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-row span,
+.draft-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 10px;
+  color: #15847c;
+  background: rgb(57 197 187 / 0.12);
+  border: 1px solid rgb(57 197 187 / 0.22);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.read-more {
+  justify-self: start;
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--aqua), var(--blue));
+  border-color: transparent;
+}
+
+.note-panel,
+.about-card {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+}
+
+.note-panel {
+  box-shadow: none;
+}
+
+.note-panel a {
+  color: var(--primary-strong);
+  font-weight: 850;
+}
+
+/* 归档页时间线。 */
+.archive-timeline {
+  display: grid;
+  gap: 28px;
+}
+
+.archive-year {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.archive-year h2 {
+  /* position: sticky 是"粘性定位"：正常滚动时随页面移动，
+   * 当元素即将滚出视口时，固定在 top: 96px 的位置不再继续上移。
+   * 效果：归档年份标题在对应年份文章列表可见时始终固定在顶部，
+   * 方便用户知道当前看的是哪一年的内容。
+   * top: 96px = 导航高度（64px）+ 一些间距，防止被导航栏遮挡。 */
+  position: sticky;
+  top: 96px;
+  color: var(--primary-strong);
+  font-size: 29px;
+}
+
+.archive-list {
+  display: grid;
+  gap: 12px;
+}
+
+.archive-list a {
+  display: grid;
+  grid-template-columns: 126px minmax(170px, 0.75fr) 110px minmax(0, 1.2fr);
+  gap: 14px;
+  align-items: start;
+  padding: 15px;
+}
+
+.archive-list time,
+.archive-list span,
+.archive-list p {
+  color: var(--muted);
+}
+
+/* 文章详情页：标题区、正文、目录和上一篇/下一篇导航。 */
+.article-header {
+  display: grid;
+  gap: 16px;
+  max-width: 920px;
+  margin-bottom: 30px;
+  animation: fadeUp 0.5s ease both;
+}
+
+.article-header h1 {
+  font-size: 46px;
+  line-height: 1.12;
+}
+
+.article-header > p {
+  color: var(--muted);
+  font-size: 19px;
+  line-height: 1.8;
+}
+
+.article-author {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.article-author span {
+  min-height: 28px;
+  padding: 4px 9px;
+  background: var(--surface);
+  border: 1px solid rgb(255 255 255 / 0.72);
+  border-radius: 8px;
+}
+
+.article-image {
+  width: 100%;
+  max-height: 520px;
+  object-fit: cover;
+  border: 6px solid rgb(255 255 255 / 0.82);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  margin-bottom: 32px;
+}
+
+/*
+ * 文章详情双栏：左侧正文（弹性宽度）+ 右侧目录（固定宽度范围）。
+ * clamp(200px, 18%, 250px) — clamp 函数取三个值：最小值、理想值、最大值。
+ *   - 视口宽度 × 18% 在 200px 到 250px 之间时，使用 18%
+ *   - 小于 200px 时，锁定到 200px（防止目录太窄）
+ *   - 大于 250px 时，锁定到 250px（防止目录太宽占用正文空间）
+ * 比单独用 min-width + max-width + width 更简洁。
+ */
+.article-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(200px, 18%, 250px);
+  gap: 34px;
+  align-items: start;
+}
+
+.prose {
+  color: #26333b;
+  padding: 28px;
+  background: var(--surface);
+  border: 1px solid rgb(255 255 255 / 0.72);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  font-size: 17px;
+  line-height: 1.95;
+}
+
+.prose.narrow {
+  max-width: 780px;
+}
+
+.prose h2,
+.prose h3 {
+  position: relative;
+  margin-top: 2em;
+  margin-bottom: 0.55em;
+  line-height: 1.25;
+}
+
+.prose h2 {
+  padding-bottom: 10px;
+  border-bottom: 2px solid rgb(255 138 76 / 0.28);
+  font-size: 30px;
+}
+
+.prose h3 {
+  padding-left: 18px;
+  font-size: 22px;
+}
+
+.prose h3::before {
+  content: "#";
+  position: absolute;
+  left: 0;
+  color: var(--rose);
+}
+
+.prose p,
+.prose ul,
+.prose ol {
+  margin-block: 1em;
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 24px;
+}
+
+.prose blockquote {
+  margin: 18px 0;
+  padding: 16px 18px;
+  color: #52616c;
+  background: rgb(57 197 187 / 0.1);
+  border-left: 4px solid var(--aqua);
+  border-radius: 8px;
+}
+
+.prose a {
+  color: var(--primary-strong);
+  font-weight: 850;
+}
+
+.prose code {
+  padding: 0.15em 0.35em;
+  color: #d64e5d;
+  background: #fff3d2;
+  border-radius: 5px;
+}
+
+.prose pre {
+  padding: 18px;
+  overflow: auto;
+  color: #d7e4ea;
+  background: #17202a;
+  border-radius: 8px;
+}
+
+.prose pre code {
+  padding: 0;
+  color: inherit;
+  background: transparent;
+}
+
+/* 目录固定在侧栏顶部，随页面滚动保持可见（同归档年份标题，使用 sticky 定位） */
+.toc {
+  position: sticky;
+  top: 96px; /* 留出导航栏（约 64px）+ 额外间距，避免被导航遮挡 */
+  padding: 15px;
+}
+
+.toc strong {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.toc ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+
+.toc .depth-3 {
+  padding-left: 12px;
+}
+
+.toc p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.article-nav,
+.related-section {
+  margin-top: 36px;
+}
+
+.article-nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.article-nav div {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+}
+
+.article-nav span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.article-nav a {
+  color: var(--primary-strong);
+  font-weight: 850;
+}
+
+/* 关于页。 */
+
+.about-card dl {
+  display: grid;
+  gap: 10px;
+}
+
+.about-card dl div {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.about-card dt {
+  color: var(--subtle);
+}
+
+/* 页脚。 */
+.site-footer {
+  padding-block: 24px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 12px;
+}
+
+/* 通用动画。prefers-reduced-motion 会在用户关闭动效时禁用动画。 */
+
+/*
+ * @keyframes 定义关键帧动画的每一帧状态。
+ * from = 0%（动画开始），to = 100%（动画结束），也可以写具体百分比（如 0%, 50%, 100%）。
+ * 浏览器会在关键帧之间自动计算过渡状态（补间动画）。
+ * 定义好后，用 animation: 动画名 时长 缓动函数 延迟 填充模式 来使用。
+ */
+
+/* 导航栏入场：从透明 + 上偏移 18px 渐变到完全可见 + 原始位置
+ * translate(-50%, -18px) 是 translateX(-50%) + translateY(-18px) 的合并写法。
+ * 两个分量都要写，因为导航居中需要 X 方向的 -50% 偏移。 */
+@keyframes headerDrop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -18px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* 通用内容入场：从下方淡入（opacity 0→1，Y 轴上移 24px→0） */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Hero 背景图入场：从轻微放大状态（1.05）缓慢还原到正常大小（1），产生呼吸感 */
+@keyframes heroImage {
+  from {
+    transform: scale(1.05);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+/* 上下轻弹循环动画：用于"向下滑动"提示按钮
+ * 0% 和 100% 设置相同状态，使动画首尾衔接平滑（无跳跃感）。
+ * translate(-50%, 8px) 向下移动 8px，-50% 是维持 left: 50% 居中所需的偏移。 */
+@keyframes softBounce {
+  0%,
+  100% {
+    transform: translate(-50%, 0);
+  }
+  50% {
+    transform: translate(-50%, 8px);
+  }
+}
+
+/*
+ * 减少动画的无障碍支持（Accessibility）：
+ * 某些用户（如患有前庭障碍、癫痫或 Motion Sickness 的人）
+ * 会在系统设置中开启"减少动画"选项，CSS 通过这个媒体查询检测并响应。
+ * 做法：把所有动画时长压缩到接近 0（0.01ms），等同于禁用动画但不破坏 JS 监听事件。
+ * !important 确保覆盖其他规则中的动画设置。
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;         /* 禁用平滑滚动，恢复瞬间跳转 */
+    animation-duration: 0.01ms !important;    /* 动画时长压缩到几乎为 0 */
+    animation-iteration-count: 1 !important; /* 循环动画只执行一次 */
+    transition-duration: 0.01ms !important;   /* 过渡动画也压缩到几乎为 0 */
+  }
+}
+
+/*
+ * 响应式断点：@media (max-width: N) 表示"当视口宽度不超过 N 时生效"。
+ * 常见对应设备宽度参考（仅参考，实际设备种类繁多）：
+ *   1440px — 大屏桌面显示器
+ *   1080px — 普通桌面 / 大平板横屏（约 iPad Pro 横屏）
+ *    760px — 小平板竖屏 / 大屏手机横屏
+ *    480px — 普通手机竖屏
+ *
+ * 通用响应式布局：平板和手机宽度下改成单列或更紧凑的布局。
+ */
+@media (max-width: 1080px) {
+  /* 平板宽度：双栏变单栏，侧边栏移到内容下方 */
+  .site-header,
+  .content-band.split,
+  .editorial-layout,
+  .search-layout,
+  .about-grid,
+  .article-layout {
+    display: grid;
+  }
+
+  .post-grid,
+  .content-band.split,
+  .editorial-layout,
+  .search-layout,
+  .about-grid,
+  .article-layout,
+  .article-nav {
+    grid-template-columns: 1fr; /* 折叠成单列 */
+  }
+
+  .post-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); /* 文章卡片从 4 列变 2 列 */
+  }
+
+  /* 平板上取消 sticky 定位，防止目录和年份标题悬浮在单列布局中显得奇怪 */
+  .toc,
+  .archive-year h2 {
+    position: static;
+  }
+
+  .archive-year,
+  .archive-list a {
+    grid-template-columns: 1fr; /* 归档列表也变单列 */
+  }
+}
+
+@media (max-width: 760px) {
+  .site-header {
+    top: 8px;
+    align-items: start;
+    gap: 12px;
+  }
+
+  nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    justify-content: stretch;
+    width: 100%;
+  }
+
+  nav a {
+    min-width: 0;
+    padding-inline: 6px;
+    text-align: center;
+    font-size: 13px;
+  }
+
+  h1,
+  .article-header h1 {
+    font-size: 40px;
+    line-height: 1.16;
+  }
+
+  .hero {
+    min-height: 720px;
+  }
+
+  .hero-copy {
+    padding: 126px 0 120px;
+  }
+
+  .hero-copy > p:not(.eyebrow),
+  .article-header > p,
+  .page-heading p:not(.eyebrow) {
+    font-size: 16px;
+  }
+
+  .hero-stats,
+  .post-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-stats {
+    max-width: 250px;
+    margin-inline: auto;
+  }
+
+  .hero-actions,
+  .subscribe-actions,
+  .profile-links {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .content-band,
+  .page-heading,
+  .article-shell {
+    width: min(100% - 24px, 1440px);
+  }
+
+  .page-heading,
+  .article-shell {
+    padding-top: 144px;
+  }
+
+  .section-heading h2,
+  .page-heading h1 {
+    font-size: 32px;
+  }
+
+  .lead-story h2 {
+    font-size: 32px;
+  }
+
+  .prose {
+    padding: 20px;
+  }
+}
+
+/*
+ * Poetize 首页主题变量：为新版首页提供更明亮的色彩和卡片边框。
+ *
+ * 注意：这里第二次使用 :root，CSS 允许同一选择器分散在多处，
+ * 浏览器会把所有 :root 块里的变量合并，后定义的同名变量会覆盖前面的。
+ * 这样做的好处是保持关注点分离：全局基础变量和首页专属变量分开管理。
+ */
+:root {
+  --themeBackground: #ff8a4c;
+  --gradualRed: linear-gradient(to right, #ff4b2b, #ff416c); /* 红色渐变，用于按钮 hover 背景 */
+  --lightGreen: #39c5bb;
+  --poetize-bg: #f7fafc;
+  --poetize-card: rgb(255 255 255 / 0.86); /* 首页卡片背景，比全局 --surface 略不透明 */
+  --poetize-border: rgb(151 171 186 / 0.22);
+  --poetize-grey: #667482;
+}
+
+.site-header {
+  top: 0;
+  left: 0;
+  width: 100%;
+  min-height: 60px;
+  margin: 0;
+  padding: 8px max(18px, calc((100vw - 1440px) / 2));
+  background: rgb(255 255 255 / 0.78);
+  border: 0;
+  border-bottom: 1px solid rgb(255 255 255 / 0.58);
+  border-radius: 0;
+  box-shadow: 0 6px 24px rgb(44 64 82 / 0.09);
+  transform: none;
+  animation: none;
+}
+
+nav a {
+  border-radius: 6px;
+}
+
+/* 首页头部和卡片的主题增强：复用毛玻璃三要素（半透明背景 + 模糊 + 半透明边框） */
+.poetize-card {
+  background: var(--poetize-card);
+  border: 1px solid rgb(255 255 255 / 0.72);
+  border-radius: 8px;
+  box-shadow: 0 12px 34px rgb(57 76 96 / 0.1);
+  backdrop-filter: blur(14px);
+}
+
+/* 新版首页 Hero：全屏背景图、签名墙、统计和向下跳转。 */
+.poetize-hero {
+  min-height: 50vh;
+  height: 50vh;
+  overflow: hidden;
+  background: #1f2730;
+}
+
+/*
+ * .poetize-hero::before — 全屏渐变蒙版，与 .hero::before 作用相同。
+ * content: "" 省略了，说明这里只设置背景属性，content 继承自 .hero::before 的规则
+ * （.poetize-hero 同时具有 .hero 的样式，因为组件结构里 poetize-hero 包含在 hero 内）。
+ */
+.poetize-hero::before {
+  background:
+    linear-gradient(180deg, rgb(18 23 30 / 0.38), rgb(18 23 30 / 0.28) 52%, rgb(18 23 30 / 0.56)),
+    linear-gradient(120deg, rgb(255 138 76 / 0.26), transparent 48%, rgb(57 197 187 / 0.23));
+}
+
+.poetize-hero::after {
+  display: none;
+}
+
+.poetize-hero .hero-bg {
+  filter: saturate(1.08) brightness(0.88);
+}
+
+.signature-wall {
+  position: relative;
+  z-index: 3; /* 在蒙版（z-index: 1/2）之上，确保文字可见 */
+  display: flex;
+  flex-direction: column; /* flex 默认横排，column 改成竖排，让标题、副标题从上到下堆叠 */
+  align-items: center;    /* 水平居中（在竖排的 flex 中，align-items 控制交叉轴即水平方向） */
+  justify-content: center; /* 垂直居中（主轴方向） */
+  width: min(940px, calc(100% - 32px)); /* 同上方 .site-header 等的居中宽度写法，小屏留 16px 边距 */
+  height: 100%;
+  margin-inline: auto;
+  padding-top: 52px; /* 导航栏高度约 60px，顶部留出间距防止内容被遮挡 */
+  color: #ffffff;
+  text-align: center;
+  user-select: none; /* 禁止用户选中文字，签名墙是装饰性内容，不需要被复制 */
+  animation: fadeUp 0.7s ease both;
+}
+
+.playful {
+  font-size: 46px;
+  line-height: 1.15;
+  text-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
+}
+
+/*
+ * display: inline-block 让 span 支持 transform 属性。
+ * 原生 inline 元素不受 transform 影响，必须改成 inline-block 或 block 才能移动/缩放。
+ */
+.playful span {
+  display: inline-block;
+  transition:
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+/*
+ * :nth-child(3n + 1) 选择每组 3 个元素中的第 1 个（即第 1, 4, 7, 10... 个）。
+ * :nth-child(3n + 2) 选择每组 3 个元素中的第 2 个（即第 2, 5, 8, 11... 个）。
+ * 两组错开颜色，剩余的第 3 个（3n + 0，即 3, 6, 9...）继承父元素白色。
+ * 这样签名墙的文字会呈现三色循环的彩虹效果。
+ */
+.playful span:nth-child(3n + 1) {
+  color: #fff1d7; /* 暖白/米黄色 */
+}
+
+.playful span:nth-child(3n + 2) {
+  color: #d8fffb; /* 淡青色 */
+}
+
+.playful span:hover {
+  transform: translateY(-3px); /* 鼠标悬停时单个字符轻微上浮，营造互动趣味感 */
+}
+
+.printer-line {
+  display: inline-flex;
+  align-items: center;
+  max-width: min(760px, 100%);
+  min-height: 40px;
+  margin-top: 20px;
+  padding: 7px 12px;
+  color: #ffffff;
+  background: rgb(255 255 255 / 0.18);
+  border: 1px solid rgb(255 255 255 / 0.26);
+  border-radius: 8px;
+  line-height: 1.7;
+  text-shadow: 0 4px 18px rgb(0 0 0 / 0.2);
+  backdrop-filter: blur(10px);
+}
+
+.cursor {
+  margin-left: 2px;
+  animation: cursorBlink 0.7s infinite;
+  font-weight: 300;
+}
+
+.poetize-hero .hero-stats {
+  margin-top: 24px;
+}
+
+.hero-down {
+  position: absolute;
+  left: 50%;
+  bottom: 44px;
+  z-index: 15;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  color: #ffffff;
+  border-radius: 50%;
+  font-size: 36px;
+  font-weight: 900;
+  animation: softBounce 1.5s ease-out infinite;
+}
+
+/* Canvas 正弦海浪：直接用 JS 逐像素绘制，彻底消除背景平铺接缝 */
+.hero-wave-canvas {
+  position: absolute;
+  left: 0;
+  bottom: -1px;  /* 向下 1px 消除像素渲染误差导致的缝隙 */
+  width: 100%;
+  height: 120px;
+  pointer-events: none; /* 让鼠标事件穿透 canvas，不影响其下方内容的交互 */
+  display: block;       /* canvas 默认是 inline，改成 block 消除底部空白间隙 */
+  /*
+   * will-change: transform 是性能优化提示：告诉浏览器这个元素的 transform 属性会改变。
+   * 浏览器可以提前将元素提升为合成层（composite layer），由 GPU 独立渲染。
+   * 波浪动画由 JS 不断重绘 canvas，提升到合成层可以避免每帧触发主线程重绘。
+   * 注意：不要滥用 will-change，只对真正有动画的元素使用，否则会浪费 GPU 内存。
+   */
+  will-change: transform;
+}
+
+/* 首页主体双栏：左侧侧栏，右侧文章流。 */
+.page-container-wrap {
+  position: relative;
+  /* 从上（poetize-bg）到下（#eef8f6）的淡渐变，让页面背景有层次感而不单调 */
+  background:
+    linear-gradient(180deg, var(--poetize-bg), #eef8f6);
+}
+
+.page-container {
+  display: grid;
+  /*
+   * 2fr 12fr：侧栏占 2 份，主内容占 12 份，总 14 份。
+   * 侧栏约占 2/14 ≈ 14%，主内容约 86%。
+   * 比写 width: 14%/86% 更灵活，gap 不会影响比例。
+   */
+  grid-template-columns: 2fr 12fr;
+  justify-content: center; /* Grid 容器内，当内容不填满时水平居中（配合 width: min(...) 使用） */
+  gap: 28px;
+  width: min(1440px, calc(100% - 24px));
+  margin: 0 auto;
+  padding: 40px 0 58px;
+}
+
+.poetize-aside {
+  display: grid;
+  align-content: start;
+  gap: 28px;
+}
+
+/* 首页侧栏：简介、统计、搜索、推荐和分类速览。 */
+/*
+ * 侧栏个人简介卡片：渐变色背景 + 流动动画。
+ *
+ * grid-template-columns: auto 1fr — 两列：左列宽度自适应（头像），右列占剩余空间（名字/按钮）。
+ * grid-template-rows: auto auto — 两行：上行名字，下行按钮，均自适应高度。
+ * gap: 6px 14px — 行间距 6px，列间距 14px（gap 支持分别设置行列间距）。
+ * aspect-ratio: 3 / 2 — 宽高比固定为 3:2，不管卡片宽度如何，高度自动计算。
+ */
+.aside-profile {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  align-content: center;
+  gap: 6px 14px;
+  aspect-ratio: 3 / 2;
+  overflow: hidden;
+  padding: 16px;
+  /* 多色渐变背景：5 种颜色在 -45 度方向排列，background-size: 400% 400% 让背景比实际容器大 4 倍。
+   * 配合 gradientBG 动画移动 background-position，实现渐变流动效果。
+   * 如果 size 是 100%，背景不动就能填满，就看不出流动效果了。 */
+  background: linear-gradient(-45deg, #e8d8b9, #eccec5, #a3e9eb, #bdbdf0, #eec1ea);
+  background-size: 400% 400%;
+  animation: gradientBG 10s ease infinite; /* 10 秒缓慢循环，infinite 永不停止 */
+}
+
+.aside-profile img {
+  /* grid-row: 1 / 3 — 让头像跨越第 1 行到第 3 行（即同时占据两行），
+   * 这样右侧的名字和按钮各占一行，头像在左侧垂直居中对齐两行文字。 */
+  grid-row: 1 / 3;
+  width: 72px;
+  height: 72px;
+  margin-top: 0;
+  object-fit: cover;
+  border: 4px solid rgb(255 255 255 / 0.86);
+  border-radius: 50%;
+  box-shadow: 0 14px 30px rgb(49 71 89 / 0.18);
+}
+
+.aside-profile h2 {
+  margin-top: 0;
+  font-size: 18px;
+  align-self: end;
+}
+
+.aside-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  margin-top: 18px;
+  text-align: center;
+}
+
+.aside-stats div {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.aside-stats span {
+  color: rgb(42 52 61 / 0.74);
+  font-size: 13px;
+}
+
+.aside-stats strong {
+  font-size: 17px;
+}
+
+.collection-btn {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 28px;
+  margin-top: 0;
+  overflow: hidden;
+  color: #ffffff;
+  background: var(--lightGreen);
+  border-radius: 999px;
+  font-weight: 850;
+  font-size: 13px;
+  align-self: start;
+}
+
+/*
+ * 按钮 hover 背景滑入效果：用 ::before 伪元素做渐变背景覆盖层。
+ *
+ * 原理：
+ * 1. 按钮本身背景是绿色（--lightGreen）
+ * 2. ::before 是同等大小的红色渐变层，z-index: -1 藏在按钮文字后面
+ * 3. 初始状态 scaleX(0)（水平缩放为 0，完全不可见），transform-origin: left 让它从左侧展开
+ * 4. hover 时 scaleX(1)（恢复正常宽度），产生"红色从左滑入覆盖绿色"的动画效果
+ *
+ * cubic-bezier(0.45, 1.64, 0.47, 0.66) 是自定义的弹性缓动曲线（超出 1 的 Y 值产生弹跳感），
+ * 比 ease/ease-in-out 更有个性。可以在 cubic-bezier.com 可视化调整这 4 个参数。
+ */
+.collection-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;           /* 在按钮文字（默认 z-index）后面，防止遮挡文字 */
+  background: var(--gradualRed);
+  border-radius: inherit; /* inherit 继承父元素（.collection-btn）的 border-radius */
+  transform: scaleX(0);   /* 初始宽度缩为 0，即不可见 */
+  transform-origin: left; /* 缩放基点在左侧，动画从左向右展开 */
+  transition: transform 0.45s cubic-bezier(0.45, 1.64, 0.47, 0.66);
+}
+
+.collection-btn:hover::before {
+  transform: scaleX(1); /* hover 时恢复正常宽度，红色渐变从左滑入 */
+}
+
+.aside-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  aspect-ratio: 3 / 2;
+  overflow: hidden;
+}
+
+.aside-panel h2 {
+  color: var(--lightGreen);
+  font-size: 19px;
+}
+
+
+.aside-recommend-list {
+  display: grid;
+  gap: 16px;
+}
+
+.aside-post-detail {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.aside-post-detail img {
+  width: 88px;
+  height: 58px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.aside-post-detail span {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+/* 侧栏推荐文章标题：2 行截断，white-space: normal 是因为某些全局规则可能设置了 nowrap，显式还原 */
+.aside-post-detail strong {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal; /* 强制允许换行，抵消可能被继承的 white-space: nowrap */
+  font-size: 14px;
+}
+
+.aside-post-detail time,
+.aside-empty {
+  color: var(--poetize-grey);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+
+/* 首页右侧文章流：公告、精选、发现列表和内容入口。 */
+.recent-posts {
+  min-width: 0;
+}
+
+.announcement {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  margin: 0 0 36px;
+  padding: 20px 22px;
+  color: var(--poetize-grey);
+  border: 1px dashed rgb(151 171 186 / 0.42);
+}
+
+.announcement-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  color: var(--themeBackground);
+  background: rgb(255 138 76 / 0.12);
+  border-radius: var(--radius-control);
+  animation: scalePulse 0.8s ease-in-out infinite;
+}
+
+.announcement-icon svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+
+.announcement p {
+  line-height: 1.65;
+}
+
+.home-featured {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 38px;
+  padding: 26px;
+}
+
+.home-featured h2 {
+  font-size: 34px;
+  line-height: 1.15;
+}
+
+.home-featured p:not(.eyebrow) {
+  margin-top: 10px;
+  color: var(--poetize-grey);
+  line-height: 1.8;
+}
+
+.sort-article-first {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 40px 0 20px;
+  padding-bottom: 7px;
+  color: var(--poetize-grey);
+  border-bottom: 1px dashed rgb(151 171 186 / 0.45);
+  font-weight: 850;
+}
+
+.leaf-mark {
+  display: inline-block;
+  margin-right: 6px;
+  color: #8bc03c;
+  font-size: 13px;
+}
+
+.article-more {
+  color: var(--lightGreen);
+  transition:
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.article-more:hover {
+  color: var(--primary-strong);
+  transform: translateX(2px);
+}
+
+/* 首页文章流：4 列等宽网格，与侧边栏无关，独立填充右侧主内容区 */
+.recent-post-container {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.post-card {
+  display: block;
+  aspect-ratio: 1 / 1;
+  grid-template-rows: none;
+  cursor: pointer;
+}
+
+.post-card-body {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.post-card-grid .post-card-body {
+  margin-inline: 17px;
+  margin-bottom: 17px;
+  padding-top: 12px;
+}
+
+.post-card-list {
+  display: block;
+  aspect-ratio: 1 / 1;
+  grid-template-columns: none;
+  grid-template-rows: none;
+  min-height: 0;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.post-card-list > :not(.post-card-media) {
+  margin-inline: 0;
+}
+
+.post-card-list > :last-child {
+  margin-bottom: 0;
+}
+
+.post-card-list.reverse .post-card-media {
+  order: initial;
+}
+
+.post-card-list .post-card-media {
+  height: auto;
+  min-height: 0;
+  aspect-ratio: 16 / 9;
+}
+
+.post-card-list .post-card-body {
+  position: relative;
+  align-content: start;
+  padding: 14px 18px 18px;
+}
+
+.post-card-list.reverse .post-card-body {
+  text-align: left;
+}
+
+.post-card-list.reverse .post-card-meta,
+.post-card-list.reverse .tag-row {
+  justify-content: flex-start;
+}
+
+.post-card-list h2 {
+  font-size: 21px;
+  white-space: normal;
+}
+
+.post-card-list p {
+  color: var(--poetize-grey);
+}
+
+.post-card-list .tag-row {
+  margin-top: auto;
+}
+
+.post-card-list .read-more {
+  display: none;
+}
+
+.gateway-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.gateway-card {
+  display: grid;
+  gap: 8px;
+  min-height: 120px;
+  padding: 18px;
+  background: var(--poetize-card);
+  border: 1px solid rgb(255 255 255 / 0.72);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgb(57 76 96 / 0.09);
+}
+
+.gateway-card span {
+  color: var(--lightGreen);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+/* 入口卡片标题：2 行截断，字号较大（22px），white-space: normal 防止被继承规则覆盖 */
+.gateway-card strong {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  font-size: 22px;
+}
+
+.gateway-card small {
+  color: var(--poetize-grey);
+}
+
+/* 首页专用动画。 */
+
+/* 打字光标闪烁：0% 和 100% 都是 opacity: 0，50% 时 opacity: 1，产生闪烁效果 */
+@keyframes cursorBlink {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/*
+ * 渐变背景流动动画：通过移动 background-position 让背景"流动"。
+ * 前提是 background-size: 400% 400%（背景比容器大 4 倍）才有移动空间。
+ * 0% 时背景位置在左侧（0% 50%），50% 时移到右侧（100% 50%），再回到左侧，形成循环。
+ */
+@keyframes gradientBG {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* 图标脉冲缩放：在 1 和 1.12 之间缩放，引起用户注意（用于公告图标） */
+@keyframes scalePulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
+}
+
+@media (max-width: 1080px) {
+  .page-container {
+    grid-template-columns: 1fr;
+    width: min(900px, calc(100% - 28px));
+  }
+
+  .poetize-aside {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .recent-post-container {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .site-header {
+    padding-inline: 12px;
+    position: static;
+  }
+
+  .poetize-hero {
+    min-height: 560px;
+    height: 560px;
+  }
+
+  .signature-wall {
+    padding-top: 24px;
+  }
+
+  .page-heading,
+  .article-shell {
+    padding-top: 48px;
+  }
+
+  .playful {
+    font-size: 38px;
+  }
+
+  .printer-line {
+    display: flex;
+    font-size: 15px;
+  }
+
+  .page-container {
+    width: min(100% - 24px, 900px);
+    gap: 26px;
+    padding-top: 28px;
+  }
+
+  .poetize-aside,
+  .recent-post-container,
+  .gateway-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .post-card-list {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .post-card-list.reverse .post-card-media {
+    order: 0;
+  }
+
+  .post-card-list .post-card-media {
+    min-height: 0;
+    aspect-ratio: 16 / 9;
+  }
+
+  .post-card-list .post-card-body,
+  .post-card-list.reverse .post-card-body {
+    padding: 22px;
+    text-align: left;
+  }
+
+  .post-card-list.reverse .post-card-meta,
+  .post-card-list.reverse .tag-row {
+    justify-content: flex-start;
+  }
+
+  .post-card-list h2 {
+    white-space: normal;
+  }
+}
+
+/*
+ * Blog refresh：第三段 :root，专门存放圆角半径变量。
+ * 把圆角值统一用变量管理，设计改版时只需修改这 3 行，无需逐一查找 border-radius。
+ *   --radius-control: 10px — 小控件：按钮、标签、输入框
+ *   --radius-card: 16px    — 卡片：文章卡片、侧栏面板
+ *   --radius-large: 22px   — 大元素：文章封面图、大型容器
+ */
+:root {
+  --radius-control: 10px;
+  --radius-card: 16px;
+  --radius-large: 22px;
+}
+
+.poetize-card,
+.lead-story,
+.note-panel,
+.about-card,
+.profile-card,
+.post-card,
+.archive-list a,
+.article-nav div,
+.toc,
+.gateway-card,
+.aside-panel,
+.announcement,
+.home-featured,
+.prose,
+.empty-note {
+  border-radius: var(--radius-card);
+}
+
+.button,
+.read-more,
+.profile-links a,
+.tag-row span,
+.draft-pill,
+.article-author span,
+.printer-line {
+  border-radius: var(--radius-control);
+}
+
+/*
+ * 滚动感知导航栏（Blog refresh 最终版）：
+ * 有 3 种状态，由 JavaScript 根据滚动位置动态给 body 添加/移除 class 来切换：
+ *
+ *   默认（无 class）    — 透明背景，白色文字，适合覆盖在 Hero 图片上
+ *   body.nav-glass      — 毛玻璃白色背景，深色文字，用户向下滚动后触发
+ *   body.nav-hidden     — 完全移出视口（translateY(-112%)），用户快速向下滚动时隐藏
+ *
+ * padding: 10px max(18px, calc((100vw - 1440px) / 2))
+ * max() 取两个值中较大的那个：
+ *   - 18px：最小内边距，小屏上保证两侧不贴边
+ *   - calc((100vw - 1440px) / 2)：大屏上自动计算，让导航内容与正文左对齐
+ * 这样导航栏内容在大屏和小屏上都能和页面内容对齐。
+ */
+.site-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40; /* 确保位于所有内容层（包括 z-index: 15 的向下按钮）之上 */
+  width: 100%;
+  min-height: 64px;
+  margin: 0;
+  padding: 10px max(18px, calc((100vw - 1440px) / 2));
+  color: #ffffff;      /* 默认白色，Hero 图片上可见 */
+  background: transparent; /* 默认透明，显示 Hero 背景 */
+  border: 0;
+  border-bottom: 1px solid transparent; /* 透明边框占位，切换到 nav-glass 时平滑过渡到有颜色 */
+  border-radius: 0;
+  box-shadow: none;
+  text-shadow: 0 2px 14px rgb(0 0 0 / 0.28); /* 文字阴影让白色文字在任何背景图上都可读 */
+  transform: translateY(0);
+  backdrop-filter: none;
+  animation: none;
+  /* 过渡所有视觉变化属性，确保 class 切换时平滑过渡而不是瞬间跳变 */
+  transition:
+    transform 0.28s ease,
+    background 0.28s ease,
+    border-color 0.28s ease,
+    box-shadow 0.28s ease,
+    color 0.28s ease,
+    text-shadow 0.28s ease;
+}
+
+/* 向上滑动隐藏：-112% 确保整个导航（含阴影）完全移出视口顶部 */
+body.nav-hidden .site-header {
+  transform: translateY(-112%);
+}
+
+/* 滚动后切换到毛玻璃状态：恢复深色文字 + 半透明白色背景 + 模糊效果 */
+body.nav-glass .site-header {
+  color: var(--ink);
+  background: rgb(255 255 255 / 0.68);
+  border-bottom-color: rgb(255 255 255 / 0.62);
+  box-shadow: 0 12px 34px rgb(42 61 78 / 0.12);
+  text-shadow: none; /* 毛玻璃背景已经足够浅，不需要文字阴影 */
+  /* saturate(1.15) 在模糊基础上略微增强背景的色彩饱和度，让毛玻璃更通透 */
+  backdrop-filter: blur(20px) saturate(1.15);
+  -webkit-backdrop-filter: blur(20px) saturate(1.15); /* Safari 需要加 -webkit- 前缀 */
+}
+
+.site-header .brand,
+.site-header nav a {
+  color: inherit;
+}
+
+.site-header nav a,
+.site-header nav a:hover,
+.site-header nav a.active {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.site-header nav a:hover,
+.site-header nav a.active {
+  color: #ffe5d5;
+  transform: translateY(-1px);
+}
+
+body.nav-glass .site-header nav a:hover,
+body.nav-glass .site-header nav a.active {
+  color: var(--primary-strong);
+}
+
+.home-category-sections {
+  display: grid;
+  gap: 36px;
+}
+
+.home-category-section {
+  display: grid;
+  gap: 16px;
+}
+
+.category-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed rgb(151 171 186 / 0.4);
+}
+
+.category-section-head h2 {
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.18;
+  font-weight: 850;
+}
+
+.category-section-head span {
+  display: none;
+  margin-top: 5px;
+  color: var(--poetize-grey);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.category-more {
+  flex: 0 0 auto;
+  font-size: 18px;
+  font-weight: 850;
+  line-height: 1.18;
+}
+
+.category-post-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+/* Blog refresh 卡片使用横向 3:2 宽高比。 */
+.post-card,
+.post-card-list {
+  aspect-ratio: 3 / 2;
+  border-radius: var(--radius-card); /* 使用变量，方便全局调整圆角 */
+  cursor: pointer; /* 鼠标指针变成手型，提示用户这是可点击的元素 */
+}
+
+.post-card-link {
+  grid-template-rows: minmax(0, 58%) minmax(0, 1fr);
+}
+
+/* 卡片图片区域：只有上方两角圆角，下方与内容区无缝衔接
+ * border-radius: 左上 右上 右下 左下（顺时针，从左上角开始）*/
+.post-card-media,
+.post-card-list .post-card-media {
+  min-height: 0;
+  aspect-ratio: auto; /* 图片区高度由父元素的 grid 行比例决定。 */
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+}
+
+.post-card-media span {
+  display: none;
+}
+
+.post-card-body,
+.post-card-list .post-card-body,
+.post-card-list.reverse .post-card-body {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 10px 14px 12px;
+  text-align: left;
+}
+
+.post-card-grid .post-card-body {
+  margin: 0;
+  padding: 10px 14px 12px;
+}
+
+/* Blog refresh 标题截断：字号从 21px 缩小到 17px（卡片更紧凑），仍保持 2 行上限 */
+.post-card h2,
+.post-card-list h2 {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 17px;
+  line-height: 1.2;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.post-card p {
+  display: none;
+}
+
+.post-card-category {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--primary-strong);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.article-detail {
+  padding-top: 110px;
+}
+
+/*
+ * 文章横幅图片：宽幅比例 16:3（比 16:9 宽很多），横跨整个内容区，像杂志封面条幅。
+ * object-position: center center — 图片从中心裁剪，避免主体被裁切到边缘。
+ * aspect-ratio 让图片高度随容器宽度自动缩放，适应不同屏幕。
+ */
+.article-image,
+.article-hero-image {
+  width: 100%;
+  max-height: none;   /* 高度由宽高比和容器宽度共同决定。 */
+  aspect-ratio: 16 / 3;
+  object-fit: cover;
+  object-position: center center;
+  border: 0;          /* 横幅不显示边框。 */
+  border-radius: var(--radius-large); /* 较大的圆角（22px），与卡片的 16px 区分，突出大图气质 */
+  box-shadow: var(--shadow);
+  margin-bottom: 30px;
+}
+
+.article-header {
+  margin-bottom: 24px;
+}
+
+/* 平板：分类文章网格从 4 列缩减到 2 列，保证每张卡片有足够宽度 */
+@media (max-width: 1080px) {
+  .category-post-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* 手机（760px 以下）：单列布局、紧凑间距和固定导航栏。 */
+@media (max-width: 760px) {
+  .site-header {
+    position: fixed; /* 手机上也固定，防止导航消失 */
+    align-items: start;
+    gap: 12px;
+    padding-inline: 12px; /* 手机屏幕窄，左右内边距缩小 */
+  }
+
+  .category-section-head {
+    align-items: center;
+    flex-direction: row; /* 手机上标题和"更多"按钮仍然横排 */
+  }
+
+  .category-section-head h2 {
+    font-size: 18px;
+  }
+
+  /* 手机上分类文章从 2 列变单列，卡片足够大便于点击 */
+  .category-post-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .article-detail {
+    padding-top: 118px; /* 手机固定导航约 60px + 额外间距，避免标题被遮挡 */
+  }
+
+  /* 手机上用 22px 硬编码覆盖 var(--radius-large)，
+   * 因为手机屏幕小，圆角视觉上不需要更大，与 --radius-large 值相同，显式写出更清晰 */
+  .article-image,
+  .article-hero-image {
+    border-radius: 22px;
+  }
+}

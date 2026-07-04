@@ -1,0 +1,21 @@
+{
+  "name": "blog",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": { "node": "26.4.x", "npm": "11.x" },
+  "scripts": {
+    "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev --host 127.0.0.1 --port 4321",
+    "build": "ASTRO_TELEMETRY_DISABLED=1 astro build --outDir dist.next && node ./scripts/copy-blog-assets.mjs dist.next && node ./scripts/publish-static.mjs",
+    "preview": "ASTRO_TELEMETRY_DISABLED=1 astro preview --host 127.0.0.1 --port 4321"
+  },
+  "dependencies": {
+    "@astrojs/mdx": "^7.0.0",
+    "@astrojs/sitemap": "^3.7.3",
+    "astro": "^7.0.3"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  },
+  "allowScripts": {}
+}

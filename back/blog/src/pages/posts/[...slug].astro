@@ -1,0 +1,136 @@
+---
+// ─────────────────────────────────────────────────────────────────────────────
+// 文章详情页（动态路由 + 静态生成）
+//
+// 文件名 `[...slug].astro` 中的 `[...slug]` 是 Astro 的【动态路由语法】：
+//   - 方括号 `[]` 表示这部分路径是动态参数（变量），而不是固定字符串；
+//   - `...` 表示"剩余路径"，可以匹配多层路径（如 posts/2024/my-article）；
+//   - 如果只写 `[slug]`（不带 ...），则只能匹配单层路径（如 posts/my-article）。
+//
+// 这个文件会生成多个 HTML 页面，每篇文章对应一个页面。
+// ─────────────────────────────────────────────────────────────────────────────
+import { render } from "astro:content";
+import BaseLayout from "@layouts/BaseLayout.astro";
+import PostCard from "@components/PostCard.astro";
+import {
+  formatDate,
+  getAdjacentPosts,
+  getAllPosts,
+  getPostImage,
+  getPostSlug,
+  getPostUrl,
+  getReadingMinutes,
+  getRelatedPosts,
+  getWordCount
+} from "@lib/posts";
+
+// `getStaticPaths` 是 Astro 的核心约定函数，在静态生成模式下必须导出。
+// ─────────────────────────────────────────────────────────────────────────────
+// 工作原理：
+//   1. Astro 在构建时发现文件名含有 `[...]`，知道这是动态路由；
+//   2. 自动调用 `getStaticPaths()`，要求它返回"这个模板需要生成哪些页面"的列表；
+//   3. 每个列表项包含 `params`（URL 参数）和 `props`（传给页面的数据）；
+//   4. Astro 对每个列表项各渲染一次模板，生成对应的静态 HTML 文件。
+//
+// 如果不导出 getStaticPaths，Astro 会报错，因为它不知道需要生成哪些页面。
+export async function getStaticPaths() {
+  const posts = await getAllPosts();
+  return posts.map((post) => ({
+    // `params.slug` 对应文件名中的 `[...slug]`，决定生成页面的 URL。
+    // 例如 slug = "2024/hello-world" → 生成 /posts/2024/hello-world/index.html
+    params: { slug: getPostSlug(post) },
+    // `props` 是传递给页面的额外数据，可以是任何 JS 对象。
+    // 页面通过 Astro.props 访问这里传入的 post 对象，避免在页面里重新查询一遍。
+    props: { post }
+  }));
+}
+
+// `Astro.props` 接收 getStaticPaths 中 props 字段传来的数据。
+// 当 Astro 渲染"这篇文章"的页面时，props.post 就是 getStaticPaths 里对应的那个 post 对象。
+const { post } = Astro.props;
+
+// `render(post)` 是 Astro 内容集合的核心 API，把 Markdown 文件编译为可用组件：
+//   - `Content`：一个 Astro 组件，在模板里写 <Content /> 就会渲染出文章正文的 HTML；
+//   - `headings`：文章中所有标题的列表（{ depth: 2, text: "章节标题", slug: "..." }），
+//     用于生成目录（Table of Contents）。
+// 这个过程发生在构建时：Markdown 被解析为 HTML AST，应用语法高亮等插件，最终序列化为 HTML。
+const { Content, headings } = await render(post);
+
+const posts = await getAllPosts();
+const related = getRelatedPosts(posts, post, 3);          // 相关文章（最多 3 篇）
+const { newer, older } = getAdjacentPosts(posts, post);   // 上一篇/下一篇（按时间排序）
+const heroImage = getPostImage(post);
+---
+
+<BaseLayout title={`${post.data.title} | Union Notes`} description={post.data.description} image={heroImage}>
+  <article class="article-shell article-detail">
+    <img class="article-image article-hero-image" src={heroImage} alt="" />
+
+    <header class="article-header">
+      <div class="article-meta">
+        <span>{post.data.category}</span>
+        <time datetime={post.data.pubDate.toISOString()}>{formatDate(post.data.pubDate)}</time>
+        {post.data.updatedDate ? <span>更新 {formatDate(post.data.updatedDate)}</span> : null}
+        <span>{getReadingMinutes(post)} 分钟</span>
+        <span>{getWordCount(post)} 字</span>
+        {post.data.draft ? <span class="draft-pill">草稿</span> : null}
+      </div>
+      <h1>{post.data.title}</h1>
+      <p>{post.data.description}</p>
+      <div class="article-author">
+        <span>{post.data.author}</span>
+        {post.data.series ? <span>{post.data.series}</span> : null}
+      </div>
+      <div class="tag-row">
+        {post.data.tags.map((tag) => <span>{tag}</span>)}
+      </div>
+    </header>
+
+    <div class="article-layout">
+      <div class="prose">
+        <Content />
+      </div>
+      <aside class="toc">
+        <strong>目录</strong>
+        {
+          headings.length ? (
+            <ol>
+              {headings
+                .filter((heading) => heading.depth > 1 && heading.depth < 4)
+                .map((heading) => (
+                  <li class={`depth-${heading.depth}`}>
+                    <a href={`#${heading.slug}`}>{heading.text}</a>
+                  </li>
+                ))}
+            </ol>
+          ) : (
+            <p>本文没有二级或三级标题。</p>
+          )
+        }
+      </aside>
+    </div>
+
+    <nav class="article-nav" aria-label="文章导航">
+      <div>
+        <span>上一篇</span>
+        {newer ? <a href={getPostUrl(newer)}>{newer.data.title}</a> : <strong>已经是最新文章</strong>}
+      </div>
+      <div>
+        <span>下一篇</span>
+        {older ? <a href={getPostUrl(older)}>{older.data.title}</a> : <strong>已经是最早文章</strong>}
+      </div>
+    </nav>
+
+    {related.length ? (
+      <section class="related-section">
+        <div class="section-heading">
+          <p class="eyebrow">Related</p>
+          <h2>相关阅读</h2>
+        </div>
+        <div class="post-grid">
+          {related.map((item) => <PostCard post={item} />)}
+        </div>
+      </section>
+    ) : null}
+  </article>
+</BaseLayout>

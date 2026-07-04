@@ -1,0 +1,109 @@
+---
+// ─────────────────────────────────────────────────────────────────────────────
+// 顶部导航栏组件
+//
+// 这个文件分两部分：
+// 1. `---` 前置块：构建时执行，生成导航链接的 active 状态；
+// 2. HTML 模板：输出静态 HTML 结构；
+// 3. <script> 块：浏览器端 JavaScript，处理滚动时导航栏的显隐和毛玻璃效果。
+// ─────────────────────────────────────────────────────────────────────────────
+import { getSiteConfig } from "@lib/siteConfig";
+import { withBase, withoutBase } from "@lib/urls";
+
+// 导航链接配置：href 是"去掉部署前缀"的纯路径，withBase() 在模板里添加前缀。
+// 这样修改导航结构只需改这个数组，不用到处改 href。
+const links = [
+  { href: "/", label: "首页" },
+  { href: "/archive/", label: "归档" },
+  { href: "/about/", label: "关于" }
+];
+
+// 当前页面路径（去掉部署前缀后的干净路径）。
+// 用于在构建时判断哪个导航链接应该高亮显示（active 状态）。
+// 注意：这是构建时的判断，生成的是静态 HTML，不是客户端运行时判断。
+const pathname = withoutBase(Astro.url.pathname);
+const siteConfig = getSiteConfig();
+---
+
+<header class="site-header">
+  <a class="brand" href={withBase("/")} aria-label={siteConfig.site_name}>
+    <img class="brand-mark" src={withBase(siteConfig.avatar_image)} alt="" />
+  </a>
+  <nav aria-label="blog 导航">
+    {
+      links.map((link) => (
+        <a
+          href={withBase(link.href)}
+          // active 链接判断逻辑：
+          // - 精确匹配：pathname === link.href（适用于首页 "/"）
+          // - 前缀匹配：pathname.startsWith(link.href)（适用于 /archive/ 下的子页面）
+          // - 排除首页做前缀匹配（link.href !== "/"），否则所有页面都会 active "/"
+          class={pathname === link.href || (pathname.startsWith(link.href) && link.href !== "/") ? "active" : ""}
+        >
+          {link.label}
+        </a>
+      ))
+    }
+  </nav>
+</header>
+
+<!-- 注意：这里的 <script> 没有 is:inline，所以 Astro/Vite 会正常处理它：
+     - 代码会被打包进 JS bundle；
+     - 可以使用 TypeScript（Vite 会转译）；
+     - 会被 Tree-shaking（未使用的代码会被删除）。
+     与 BaseLayout.astro 中 is:inline 的处理方式形成对比。 -->
+<script>
+  (() => {
+    const header = document.querySelector(".site-header");
+    if (!header) return;
+
+    // 记录上一次的滚动位置，用于判断滚动方向。
+    let lastY = window.scrollY;
+
+    // 动态计算隐藏导航栏的阈值：
+    // 超过 Hero 区域底部（减去 80px 提前量）后开始响应向下滚动。
+    // 没有 Hero 区域时（文章页等）用固定值 180px。
+    // 之所以动态计算而非写死，是因为不同页面的 Hero 高度可能不同。
+    const getHideThreshold = () => {
+      const hero = document.querySelector(".poetize-hero");
+      return hero instanceof HTMLElement ? Math.max(160, hero.offsetHeight - 80) : 180;
+    };
+
+    const syncHeader = () => {
+      const y = window.scrollY;
+      const threshold = getHideThreshold();
+
+      // 死区（dead zone）设计：变化量超过 8px 才判断方向，
+      // 避免轻微抖动（如手机触摸时的弹性滚动）触发导航栏频繁显隐。
+      const scrollingDown = y > lastY + 8;
+      const scrollingUp = y < lastY - 8;
+
+      // 毛玻璃效果：滚动超过 36px 后给 body 加 nav-glass 类，
+      // CSS 中 .nav-glass .site-header 可以实现背景模糊效果（backdrop-filter）。
+      // classList.toggle(cls, condition) 等价于：condition ? add(cls) : remove(cls)
+      document.body.classList.toggle("nav-glass", y > 36);
+
+      // 向下滚动且已超过 Hero 区域 → 隐藏导航栏（节省屏幕空间）
+      if (scrollingDown && y > threshold) {
+        document.body.classList.add("nav-hidden");
+      }
+
+      // 向上滚动 或 回到页面顶部 → 恢复显示导航栏
+      if (scrollingUp || y <= threshold) {
+        document.body.classList.remove("nav-hidden");
+      }
+
+      // 更新上一次位置（取非负值，防止 iOS 弹性滚动出现负值）
+      lastY = Math.max(0, y);
+    };
+
+    // 初始化：页面加载时立即执行一次，处理刷新后已经滚动的情况
+    syncHeader();
+
+    // passive: true 是性能优化选项：告诉浏览器这个监听器不会调用 preventDefault()，
+    // 浏览器可以不等待 JS 执行就直接处理滚动，使滚动更流畅。
+    window.addEventListener("scroll", syncHeader, { passive: true });
+    // 窗口尺寸变化时重新计算阈值（Hero 高度可能因响应式布局而改变）
+    window.addEventListener("resize", syncHeader);
+  })();
+</script>

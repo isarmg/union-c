@@ -1,0 +1,9 @@
+---
+import { getSiteConfig } from "@lib/siteConfig";
+
+const siteConfig = getSiteConfig();
+---
+
+{siteConfig.footer_note
+  ? <footer class="site-footer"><small>{siteConfig.footer_note}</small></footer>
+  : null}

@@ -1,0 +1,171 @@
+---
+// ─────────────────────────────────────────────────────────────────────────────
+// 博客首页（静态生成）
+// ─────────────────────────────────────────────────────────────────────────────
+// Astro 静态生成的基本原理：
+//   执行 `astro build` 时，Astro 把每个 .astro 文件当作一个页面模板。
+//   前置块（这里）中的代码在【构建时】运行一次，产生数据。
+//   然后把数据插入 HTML 模板，输出一个静态 .html 文件。
+//   最终部署到服务器的是纯 HTML/CSS/JS，没有 Node.js 进程，访问速度极快。
+//
+// 重要区别：这里所有的函数调用（getAllPosts、getSiteConfig 等）都发生在构建时，
+//   不是用户访问页面时。修改内容后需要重新构建才能更新页面。
+// ─────────────────────────────────────────────────────────────────────────────
+import BaseLayout from "@layouts/BaseLayout.astro";
+import BlogAside from "@components/BlogAside.astro";
+import PostCard from "@components/PostCard.astro";
+import {
+  getAllPosts,       // 读取所有已发布文章（来自内容集合，构建时执行）
+  getFeaturedPosts, // 筛选标记了 featured: true 的文章
+  groupCategories   // 将文章列表按 category 字段分组，返回 [分类名, 文章数组][] 格式
+} from "@lib/posts";
+import { getSiteConfig } from "@lib/siteConfig";
+import { withBase } from "@lib/urls";
+
+const siteConfig = getSiteConfig();
+
+// `await getAllPosts()` 是异步调用：Astro 前置块支持顶层 await，
+// 不需要像普通 JavaScript 那样把代码包在 async 函数里。
+const posts = await getAllPosts();
+const featured = await getFeaturedPosts(4); // 取最多 4 篇精选文章
+const categories = groupCategories(posts);  // 按分类分组，用于首页分类展示
+
+// 确定 Hero 区域展示的文章：优先用精选文章，没有则用最新文章
+const heroPost = featured[0] ?? posts[0];
+
+// `Array.from(string)` 将字符串拆成单个字符数组。
+// 原因：hero_title 的每个字需要单独包在 <span> 里做逐字动画效果。
+// 例如 "有诗意地记录" → ["有", "诗", "意", "地", "记", "录"]
+const heroTitle = Array.from(siteConfig.hero_title);
+
+// 副标题优先级：配置 > 首篇文章描述 > 默认文案
+const heroSubtitle =
+  siteConfig.hero_subtitle || heroPost?.data.description || "把生活、服务和长期维护写清楚";
+
+// 公告栏文案优先级：配置 > 最新文章标题 > 默认提示
+const notice = siteConfig.announcement || (heroPost
+  ? `最近更新：${heroPost.data.title}`
+  : "文章草稿可以在控制台维护，发布后会自动进入博客首页。");
+
+// 每个分类最多展示 8 篇文章（避免首页过长）。
+// `.slice(0, 8)` 取数组前 8 个元素，不修改原数组。
+const categorySections = categories.map(([category, items]) => ({
+  category,
+  posts: items.slice(0, 8),
+}));
+---
+
+<BaseLayout title={siteConfig.site_title} description={siteConfig.site_description} image={siteConfig.background_image}>
+  <section class="hero poetize-hero">
+    <img class="hero-bg" src={withBase(siteConfig.background_image)} alt="" />
+    <div class="signature-wall">
+      <p class="eyebrow">POETIC SELF-HOSTED JOURNAL</p>
+      <h1 class="playful">
+        {heroTitle.map((letter) => <span>{letter}</span>)}
+      </h1>
+      <div class="printer-line">
+        <span>{heroSubtitle}</span>
+        <span class="cursor">|</span>
+      </div>
+      <a class="hero-down" href="#home-content" aria-label="跳到首页内容">↓</a>
+    </div>
+    <canvas id="hero-wave" class="hero-wave-canvas" aria-hidden="true"></canvas>
+  </section>
+
+  <section id="home-content" class="page-container-wrap">
+    <div class="page-container">
+      <BlogAside posts={posts} />
+
+      <div class="recent-posts">
+        <div class="announcement poetize-card">
+          <span class="announcement-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="24" height="24">
+              <path d="M4 10v4h3l8 4V6l-8 4H4Zm13-1.4v6.8c1.2-.7 2-2 2-3.4s-.8-2.7-2-3.4Z" />
+            </svg>
+          </span>
+          <p>{notice}</p>
+        </div>
+
+        {
+          categorySections.length ? (
+            <div class="home-category-sections">
+              {categorySections.map(({ category, posts: sectionPosts }, sectionIndex) => (
+                <section class="home-category-section" aria-labelledby={`category-section-${sectionIndex}`}>
+                  <div class="category-section-head">
+                    <h2 id={`category-section-${sectionIndex}`}>{category}</h2>
+                  </div>
+                  <div class="category-post-grid">
+                    {sectionPosts.map((post) => <PostCard post={post} />)}
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : (
+            <p class="empty-note">暂无公开文章。可以在控制台发布草稿后刷新这里。</p>
+          )
+        }
+      </div>
+    </div>
+  </section>
+<script is:inline>
+(function () {
+  var canvas = document.getElementById('hero-wave');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var rafId;
+
+  // 尊重系统减少动画偏好
+  var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var CANVAS_H = 120; // 画布高度（px）
+
+  // 两条波浪参数：y = A * sin(k * x + φ) + n
+  // A: 振幅, k: 角频率(rad/px), n: 竖向偏移量(px), speed: 每帧相位增量, color/opacity: 外观
+  var waves = [
+    // 后浪：波长较长、振幅略小、速度较慢、半透明
+    { A: 10, k: 0.0160, n: 78, speed: 0.025, color: '#f7fafc', opacity: 0.35, phase: 1.2 },
+    // 前浪：纯白色、不透明
+    { A: 13, k: 0.0200, n: 72, speed: 0.010, color: '#ffffff', opacity: 1.0, phase: 0 },
+  ];
+
+  function resize() {
+    canvas.width  = window.innerWidth;
+    canvas.height = CANVAS_H;
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, CANVAS_H);
+    var W = canvas.width;
+
+    for (var i = 0; i < waves.length; i++) {
+      var w = waves[i];
+      ctx.beginPath();
+      // 从左下角出发，逐像素计算正弦曲线
+      ctx.moveTo(0, CANVAS_H);
+      for (var x = 0; x <= W; x += 2) {
+        var y = w.A * Math.sin(w.k * x + w.phase) + w.n;
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(W, CANVAS_H);
+      ctx.closePath();
+      ctx.globalAlpha = w.opacity;
+      ctx.fillStyle   = w.color;
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    if (!reducedMotion) {
+      for (var j = 0; j < waves.length; j++) {
+        waves[j].phase -= waves[j].speed;
+      }
+      rafId = requestAnimationFrame(draw);
+    }
+  }
+
+  // 响应窗口尺寸变化
+  window.addEventListener('resize', resize);
+  resize();
+  draw();
+})();
+</script>
+</BaseLayout>

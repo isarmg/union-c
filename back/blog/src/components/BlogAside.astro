@@ -1,0 +1,44 @@
+---
+import type { Post } from "@lib/posts";
+import { formatDate, getPostImage, getPostUrl } from "@lib/posts";
+import { getSiteConfig } from "@lib/siteConfig";
+import { withBase } from "@lib/urls";
+
+interface Props {
+  posts: Post[];
+}
+
+const { posts } = Astro.props;
+const siteConfig = getSiteConfig();
+const featuredPosts = posts.filter((post) => post.data.featured);
+const recommended = (featuredPosts.length ? featuredPosts : posts).slice(0, 3);
+---
+
+<aside class="poetize-aside" aria-label="blog 侧栏">
+  <section class="aside-profile poetize-card">
+    <img src={withBase(siteConfig.avatar_image)} alt="" />
+    <h2>{siteConfig.site_name}</h2>
+    <a class="collection-btn" href={withBase("/about/")}>关于这里</a>
+  </section>
+
+  <section class="aside-panel poetize-card">
+    <h2>推荐文章</h2>
+    {
+      recommended.length ? (
+        <div class="aside-recommend-list">
+          {recommended.map((post) => (
+            <a class="aside-post-detail" href={getPostUrl(post)}>
+              <img src={getPostImage(post)} alt="" loading="lazy" />
+              <span>
+                <strong>{post.data.title}</strong>
+                <time datetime={post.data.pubDate.toISOString()}>{formatDate(post.data.pubDate)}</time>
+              </span>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <p class="aside-empty">发布文章后会显示推荐内容。</p>
+      )
+    }
+  </section>
+</aside>
