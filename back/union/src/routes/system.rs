@@ -71,21 +71,9 @@ pub(super) async fn update_database_config(
     State(state): State<AppState>,
     Json(payload): Json<UpdateDatabaseConfigRequest>,
 ) -> AppResult<Json<DatabaseConfigResponse>> {
-    let url = payload.database_url.trim();
-    if url.is_empty() {
-        return Err(crate::error::AppError::BadRequest(
-            "数据库连接地址不能为空".to_string(),
-        ));
-    }
-    let parsed = url::Url::parse(url)
-        .map_err(|_| crate::error::AppError::BadRequest("数据库连接地址格式无效".to_string()))?;
-    if !matches!(parsed.scheme(), "postgres" | "postgresql") {
-        return Err(crate::error::AppError::BadRequest(
-            "仅支持 PostgreSQL 连接地址".to_string(),
-        ));
-    }
+    let url = crate::app_config::normalize_database_url(&payload.database_url)?;
     let mut candidate = (*state.settings).clone();
-    candidate.database.url = url.to_string();
+    candidate.database.url = url.clone();
     let pool = crate::database::connect(&candidate)
         .await
         .map_err(crate::error::AppError::Anyhow)?;
@@ -97,7 +85,7 @@ pub(super) async fn update_database_config(
         .map_err(crate::error::AppError::Anyhow)?;
 
     let mut config = state.auth.local_config.write().await;
-    config.database_url = url.to_string();
+    config.database_url = url.clone();
     crate::app_config::save_local_config(&config).map_err(crate::error::AppError::Anyhow)?;
     drop(config);
 
@@ -105,7 +93,7 @@ pub(super) async fn update_database_config(
     // 因此这里只验证并保存连接，统一在下次启动时装载完整状态。
     Ok(Json(DatabaseConfigResponse {
         configured: true,
-        database_url: redact_database_url(url),
+        database_url: redact_database_url(&url),
         connected: crate::database::ping(state.db().as_ref()).await.is_ok(),
         restart_required: true,
     }))
@@ -302,5 +290,21 @@ mod tests {
         let Json(response) = database_config(State(state)).await;
 
         assert!(response.restart_required);
+    }
+
+    #[tokio::test]
+    async fn invalid_database_url_reports_specific_error_code() {
+        let state = state_with_database_urls("", "");
+
+        let error = update_database_config(
+            State(state),
+            Json(UpdateDatabaseConfigRequest {
+                database_url: "mysql://union:secret@127.0.0.1:3306/union".to_string(),
+            }),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.code(), "local_config_database_url_unsupported_scheme");
     }
 }

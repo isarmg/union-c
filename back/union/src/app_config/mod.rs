@@ -13,6 +13,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 pub const LOCAL_CONFIG_PATH: &str = "data/union-config.json";
 
@@ -22,6 +23,38 @@ pub struct LocalConfig {
     pub database_url: String,
     pub admin_username: String,
     pub admin_password_hash: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum LocalConfigError {
+    #[error("数据库连接地址不能为空")]
+    EmptyDatabaseUrl,
+    #[error("数据库连接地址格式无效")]
+    InvalidDatabaseUrl,
+    #[error("仅支持 PostgreSQL 连接地址")]
+    UnsupportedDatabaseScheme,
+    #[error("local admin username cannot be empty")]
+    EmptyAdminUsername,
+    #[error("local admin username contains invalid characters")]
+    InvalidAdminUsername,
+    #[error("local admin password hash cannot be empty")]
+    EmptyAdminPasswordHash,
+    #[error("local admin password hash must be a valid bcrypt hash")]
+    InvalidAdminPasswordHash,
+}
+
+impl LocalConfigError {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::EmptyDatabaseUrl => "local_config_database_url_empty",
+            Self::InvalidDatabaseUrl => "local_config_database_url_invalid",
+            Self::UnsupportedDatabaseScheme => "local_config_database_url_unsupported_scheme",
+            Self::EmptyAdminUsername => "local_config_admin_username_empty",
+            Self::InvalidAdminUsername => "local_config_admin_username_invalid",
+            Self::EmptyAdminPasswordHash => "local_config_admin_password_hash_empty",
+            Self::InvalidAdminPasswordHash => "local_config_admin_password_hash_invalid",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -361,4 +394,4 @@ impl Default for BlogSettings {
 
 mod runtime;
 
-pub use runtime::{ensure_layout, load_local_config, save_local_config};
+pub use runtime::{ensure_layout, load_local_config, normalize_database_url, save_local_config};

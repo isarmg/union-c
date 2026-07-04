@@ -194,7 +194,7 @@ fn encode_segment(segment: &str) -> String {
 /// 用原始 TCP 连接向 ram 发送一个 HTTP/1.1 GET 请求，返回 (状态码, 响应体)。
 ///
 /// HTTP/1.1 协议格式（"\r\n" 是 HTTP 规定的行分隔符，不能用 "\n"）：
-/// ```
+/// ```text
 /// GET /path HTTP/1.1\r\n      ← 请求行
 /// Host: 127.0.0.1:5000\r\n   ← 必须有 Host 头，HTTP/1.1 规范要求
 /// User-Agent: ...\r\n         ← 可选，但有助于日志识别来源

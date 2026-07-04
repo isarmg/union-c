@@ -10,7 +10,7 @@ use axum::{
 };
 use thiserror::Error;
 
-use crate::domain::ErrorResponse;
+use crate::{app_config::LocalConfigError, domain::ErrorResponse};
 
 /// 项目内 handler 常用的结果类型别名。
 pub type AppResult<T> = Result<T, AppError>;
@@ -21,6 +21,9 @@ pub enum AppError {
     /// 请求参数不合法，返回 400。
     #[error("{0}")]
     BadRequest(String),
+    /// 本地管理员配置校验失败，返回可细分机器码。
+    #[error(transparent)]
+    LocalConfig(#[from] LocalConfigError),
     /// 主机地址格式错误，返回稳定机器码 `invalid_host`。
     #[error("{0}")]
     InvalidHost(String),
@@ -62,7 +65,9 @@ pub enum AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let status = match &self {
-            AppError::BadRequest(_) | AppError::InvalidHost(_) => StatusCode::BAD_REQUEST,
+            AppError::BadRequest(_) | AppError::LocalConfig(_) | AppError::InvalidHost(_) => {
+                StatusCode::BAD_REQUEST
+            }
             AppError::Unauthorized => StatusCode::UNAUTHORIZED,
             AppError::Forbidden(_) => StatusCode::FORBIDDEN,
             AppError::Conflict(_) => StatusCode::CONFLICT,
@@ -79,6 +84,7 @@ impl IntoResponse for AppError {
         // 内部错误记录完整信息用于调试，但对外只返回通用描述，不泄露路径或 SQL。
         let client_message = match &self {
             AppError::BadRequest(msg) => msg.clone(),
+            AppError::LocalConfig(error) => error.to_string(),
             AppError::InvalidHost(msg) => msg.clone(),
             AppError::Unauthorized => "unauthorized".to_string(),
             AppError::Forbidden(msg) => msg.clone(),
@@ -116,6 +122,7 @@ impl AppError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::BadRequest(_) => "bad_request",
+            Self::LocalConfig(error) => error.code(),
             Self::InvalidHost(_) => "invalid_host",
             Self::Unauthorized => "unauthorized",
             Self::Forbidden(_) => "forbidden",
@@ -144,6 +151,10 @@ mod tests {
         );
         assert_eq!(AppError::Unauthorized.code(), "unauthorized");
         assert_eq!(AppError::InvalidHost("bad".into()).code(), "invalid_host");
+        assert_eq!(
+            AppError::LocalConfig(LocalConfigError::InvalidDatabaseUrl).code(),
+            "local_config_database_url_invalid"
+        );
         assert_eq!(
             AppError::Upstream("changed".into()).code(),
             "upstream_error"
