@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Edit2, KeyRound, Loader2, Save, Settings, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
@@ -105,39 +105,189 @@ function AccountSection() {
   );
 }
 
+type DatabaseFields = {
+  scheme: "postgres" | "postgresql";
+  host: string;
+  port: string;
+  username: string;
+  password: string;
+  database: string;
+  search: string;
+  hash: string;
+};
+
+const emptyDatabaseFields: DatabaseFields = {
+  scheme: "postgresql",
+  host: "",
+  port: "5432",
+  username: "",
+  password: "",
+  database: "",
+  search: "",
+  hash: ""
+};
+
+function decodeUrlPart(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function parseDatabaseUrl(value: string): DatabaseFields {
+  if (!value.trim()) return { ...emptyDatabaseFields };
+  try {
+    const parsed = new URL(value);
+    return {
+      scheme: parsed.protocol === "postgres:" ? "postgres" : "postgresql",
+      host: parsed.hostname,
+      port: parsed.port || "5432",
+      username: decodeUrlPart(parsed.username),
+      password: decodeUrlPart(parsed.password),
+      database: decodeUrlPart(parsed.pathname.replace(/^\/+/, "")),
+      search: parsed.search,
+      hash: parsed.hash
+    };
+  } catch {
+    return { ...emptyDatabaseFields };
+  }
+}
+
+function buildDatabaseUrl(fields: DatabaseFields) {
+  const host = fields.host.trim();
+  const port = Number(fields.port);
+  if (!host || /[\s/@?#]/.test(host) || !/^\d+$/.test(fields.port) || port < 1 || port > 65535) return "";
+  if (host.includes(":") && !(host.startsWith("[") && host.endsWith("]"))) return "";
+
+  try {
+    const hostProbe = new URL(`http://${host}`);
+    if (hostProbe.port || hostProbe.pathname !== "/" || hostProbe.search || hostProbe.hash) return "";
+
+    const parsed = new URL(`${fields.scheme}://localhost`);
+    parsed.hostname = hostProbe.hostname;
+    parsed.port = fields.port;
+    parsed.username = fields.username;
+    parsed.password = fields.password;
+    parsed.pathname = fields.database ? `/${encodeURIComponent(fields.database)}` : "";
+    parsed.search = fields.search;
+    parsed.hash = fields.hash;
+    return parsed.toString();
+  } catch {
+    return "";
+  }
+}
+
 function DatabaseSection() {
   const queryClient = useQueryClient();
   const databaseQuery = useQuery({ queryKey: queryKeys.settings.database, queryFn: api.databaseConfig });
-  const [url, setUrl] = useState<string | null>(null);
-  const value = url ?? databaseQuery.data?.database_url ?? "";
+  const [fields, setFields] = useState<DatabaseFields>(emptyDatabaseFields);
+  const databaseUrl = buildDatabaseUrl(fields);
+
+  useEffect(() => {
+    if (databaseQuery.data) setFields(parseDatabaseUrl(databaseQuery.data.database_url));
+  }, [databaseQuery.data]);
+
   const saveMutation = useMutation({
-    mutationFn: () => api.saveDatabaseConfig(value),
+    mutationFn: () => api.saveDatabaseConfig(databaseUrl),
     onSuccess: (data) => {
-      setUrl(data.database_url);
+      setFields(parseDatabaseUrl(data.database_url));
       queryClient.setQueryData(queryKeys.settings.database, data);
     }
   });
+  const canSave = Boolean(databaseUrl && fields.password !== "********" && !saveMutation.isPending);
+  const updateField = (field: keyof Pick<DatabaseFields, "host" | "port" | "username" | "password" | "database">) =>
+    (event: React.ChangeEvent<HTMLInputElement>) => setFields(current => ({ ...current, [field]: event.target.value }));
 
   return (
     <section className="section-band">
       <SectionHeader icon={Settings} title="数据库连接" description="连接测试和初始化成功后写入本地私有配置，并立即切换当前连接。" />
-      <form className="account-form" onSubmit={(event) => { event.preventDefault(); saveMutation.mutate(); }}>
-        <label className="inline-field">
-          <span>PostgreSQL URL</span>
-          <input type="password" autoComplete="off" value={value}
-            onChange={(event) => setUrl(event.target.value)}
-            placeholder="postgresql://user:password@127.0.0.1:5432/union" />
-        </label>
+      <div className="content-grid settings-grid">
+        <form
+          className="content-card database-card"
+          aria-label="数据库连接"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (canSave) saveMutation.mutate();
+          }}
+        >
+          <CardInner>
+            <CardRow label="主机">
+              <input
+                type="text"
+                autoComplete="off"
+                value={fields.host}
+                className="database-field-input"
+                aria-label="主机"
+                onChange={updateField("host")}
+                placeholder="127.0.0.1"
+                spellCheck={false}
+                required
+              />
+            </CardRow>
+            <CardRow label="端口">
+              <input
+                type="number"
+                min="1"
+                max="65535"
+                value={fields.port}
+                className="database-field-input"
+                aria-label="端口"
+                onChange={updateField("port")}
+                placeholder="5432"
+                required
+              />
+            </CardRow>
+            <CardRow label="用户名">
+              <input
+                type="text"
+                autoComplete="username"
+                value={fields.username}
+                className="database-field-input"
+                aria-label="用户名"
+                onChange={updateField("username")}
+              />
+            </CardRow>
+            <CardRow label="密码">
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={fields.password}
+                className="database-field-input"
+                aria-label="密码"
+                onChange={updateField("password")}
+              />
+            </CardRow>
+            <CardRow label="数据库名">
+              <input
+                type="text"
+                autoComplete="off"
+                value={fields.database}
+                className="database-field-input"
+                aria-label="数据库名"
+                onChange={updateField("database")}
+              />
+            </CardRow>
+            <CardActions>
+              <button
+                type="submit"
+                className="card-action-button primary"
+                disabled={!canSave}
+              >
+                {saveMutation.isPending ? <Loader2 size={12} className="spin" /> : <Save size={12} />}
+                <span>测试并保存</span>
+              </button>
+            </CardActions>
+          </CardInner>
+        </form>
+      </div>
+      <div className="database-notices">
         <MutationError mutation={saveMutation} />
+        {databaseQuery.isError && <InlineNotice tone="danger" text={databaseQuery.error.message} />}
         {databaseQuery.data && <InlineNotice tone="warn"
           text={databaseQuery.data.connected ? "数据库已连接" : databaseQuery.data.configured ? "配置已保存，当前进程尚未连接" : "尚未配置数据库"} />}
         {saveMutation.isSuccess && <InlineNotice tone="warn" text="连接测试通过，配置已保存并立即生效。" />}
-        <div className="blog-panel-actions">
-          <button type="submit" className="action-button primary" disabled={!value.trim() || value.includes("********") || saveMutation.isPending}>
-            {saveMutation.isPending ? <Loader2 size={16} className="spin" /> : <Save size={16} />}<span>测试并保存</span>
-          </button>
-        </div>
-      </form>
+      </div>
     </section>
   );
 }

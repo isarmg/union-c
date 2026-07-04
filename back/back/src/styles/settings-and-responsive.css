@@ -1,6 +1,37 @@
 /* 设置页：展示当前策略、路径和运行约束。 */
 /* .setting-item 外观来自统一规则，内部布局由 card-inner / card-row 处理 */
 
+.database-card .database-field-input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  outline: 0;
+  font: inherit;
+}
+
+.database-card .database-field-input:focus {
+  border-bottom-color: var(--primary);
+}
+
+.database-card .database-field-input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.database-notices:not(:empty) {
+  display: grid;
+  gap: 8px;
+  margin-top: var(--content-block-gap);
+}
+
+.database-notices .inline-notice {
+  margin-bottom: 0;
+}
+
 .policy-list {
   display: grid;
   gap: 10px;

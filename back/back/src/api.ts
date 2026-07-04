@@ -226,12 +226,21 @@ export const api = {
     });
   },
   login: async (username: string, password: string) => {
-    const result = await request<{ username: string; token: string }>("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ username, password })
-    });
-    writeSessionToken(result.token);
-    return result;
+    try {
+      const result = await request<{ username: string; token: string }>("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ username, password }),
+        // 登录失败表示提交的凭据无效，不是已有会话过期；不要触发全局会话刷新。
+        suppressAuthExpired: true
+      });
+      writeSessionToken(result.token);
+      return result;
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        throw new ApiError("账号或密码错误", error.code, error.status);
+      }
+      throw error;
+    }
   },
   // 管理后端自身状态。
   health: () => request<HealthResponse>("/api/health"),

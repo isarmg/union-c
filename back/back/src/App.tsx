@@ -10,6 +10,8 @@ import {
   Cpu,
   Gamepad2,
   LayoutDashboard,
+  Lock,
+  LogIn,
   Moon,
   Plus,
   Power,
@@ -18,6 +20,7 @@ import {
   Sun,
   Terminal,
   UploadCloud,
+  User,
   X
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -35,7 +38,13 @@ import { SunshineView } from "./views/SunshineView";
 import { LogsView } from "./views/LogsView";
 import { BlogView } from "./views/BlogView";
 import { SettingsView } from "./views/SettingsView";
-import { InlineNotice, LoadingBlock } from "./components/ui";
+import {
+  CardActions,
+  CardInner,
+  CardRow,
+  InlineNotice,
+  LoadingBlock
+} from "./components/ui";
 
 // ─── 导航配置 ─────────────────────────────────────────────────────────────────
 
@@ -189,20 +198,49 @@ function LoginScreen({ onLogin }: { onLogin: (username: string, password: string
 
   return (
     <main className="app-shell login-screen">
-      <form className="login-card" onSubmit={submit}>
-        <div><h1>Union</h1><p>登录管理中心</p></div>
-        <label>
-          <span>用户名</span>
-          <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" autoFocus required />
-        </label>
-        <label>
-          <span>密码</span>
-          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
-        </label>
-        {error ? <InlineNotice tone="danger" text={error} /> : null}
-        <button className="primary-button" type="submit" disabled={submitting || !username.trim() || !password}>
-          {submitting ? "正在登录…" : "登录"}
-        </button>
+      <form className="content-card login-card" onSubmit={submit} aria-label="登录 Union 管理中心">
+        <CardInner>
+          <CardRow label={<><span className="login-label-icon" aria-hidden="true"><User /></span>账号</>} />
+          <CardRow label="">
+            <input
+              className="login-input"
+              aria-label="账号"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              autoComplete="username"
+              autoFocus
+              required
+            />
+          </CardRow>
+          <CardRow label={<><span className="login-label-icon" aria-hidden="true"><Lock /></span>密码</>} />
+          <CardRow label="">
+            <input
+              className="login-input"
+              aria-label="密码"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </CardRow>
+          <CardRow label="" row={5}>
+            {error ? (
+              <span className="login-error" role="alert" title={error}>
+                {error}
+              </span>
+            ) : null}
+          </CardRow>
+          <CardActions label={<><span className="login-label-icon" aria-hidden="true"><LogIn /></span>操作</>}>
+            <button
+              className="card-action-button primary"
+              type="submit"
+              disabled={submitting || !username.trim() || !password}
+            >
+              <span>{submitting ? "正在登录…" : "登录"}</span>
+            </button>
+          </CardActions>
+        </CardInner>
       </form>
     </main>
   );
