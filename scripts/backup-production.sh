@@ -36,13 +36,13 @@ fi
 
 mkdir -p "$BACKUP_DIR"
 pg_dump --dbname "$UNION_DATABASE_URL" --format=custom --file="$WORK/database.dump"
-tar -C "$ROOT" -cf "$WORK/runtime-files.tar" data/blog/files data/ram/files
+tar -C "$ROOT" -cf "$WORK/runtime-files.tar" blog/data/files ram/data/files
 cp "$ENV_FILE" "$WORK/union.env"
-if [ -f "$ROOT/data/union-config.json" ]; then
-    cp "$ROOT/data/union-config.json" "$WORK/union-config.json"
+if [ -f "$ROOT/union/data/union-config.json" ]; then
+    cp "$ROOT/union/data/union-config.json" "$WORK/union-config.json"
 fi
-if [ -f "$ROOT/data/union.secret" ]; then
-    cp "$ROOT/data/union.secret" "$WORK/union.secret"
+if [ -f "$ROOT/union/data/union.secret" ]; then
+    cp "$ROOT/union/data/union.secret" "$WORK/union.secret"
 fi
 
 tar -C "$WORK" -cf - . | age -r "$AGE_RECIPIENT" -o "$BACKUP_DIR/union-$STAMP.tar.age"

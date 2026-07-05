@@ -32,7 +32,8 @@ Commands:
 Overrides:
   DEPLOY_ROOT, SERVICE_USER, SERVICE_GROUP, ENV_DIR, ENV_FILE
   UNION_DATABASE_URL, UNION_SECRET_KEY, UNION_BOOTSTRAP_PASSWORD
-  UNION_RAM_PUBLIC_URL, UNION_RETENTION_DAYS, PUBLIC_SITE_URL, RUST_LOG
+  UNION_RAM_PUBLIC_URL, UNION_RETENTION_DAYS, PUBLIC_SITE_URL
+  UNION_REQUIRE_LOCAL_STATIC_ARTIFACTS, RUST_LOG
 
 Examples:
   ./scripts/deploy-linux.sh check
@@ -94,19 +95,33 @@ validate_settings() {
     esac
     [ "$DEPLOY_ROOT" != / ] || die "DEPLOY_ROOT must not be /"
     case "$SERVICE_USER" in
-        *[!a-zA-Z0-9_-]*|'') die "invalid SERVICE_USER" ;;
+        -*|*[!a-zA-Z0-9_-]*|'') die "invalid SERVICE_USER" ;;
     esac
     case "$SERVICE_GROUP" in
-        *[!a-zA-Z0-9_-]*|'') die "invalid SERVICE_GROUP" ;;
+        -*|*[!a-zA-Z0-9_-]*|'') die "invalid SERVICE_GROUP" ;;
     esac
+    for path_setting in \
+        "ENV_DIR:$ENV_DIR" \
+        "ENV_FILE:$ENV_FILE" \
+        "SYSTEMD_DIR:$SYSTEMD_DIR" \
+        "TMPFILES_DIR:$TMPFILES_DIR" \
+        "LOGROTATE_DIR:$LOGROTATE_DIR"
+    do
+        setting_name=${path_setting%%:*}
+        setting_value=${path_setting#*:}
+        case "$setting_value" in
+            /*) ;;
+            *) die "$setting_name must be an absolute path" ;;
+        esac
+    done
 }
 
 check_layout() {
     for path in \
-        back/back/package.json \
-        back/union/Cargo.toml \
-        back/ram/Cargo.toml \
-        back/blog/package.json \
+        back/source/package.json \
+        union/source/Cargo.toml \
+        ram/source/Cargo.toml \
+        blog/source/package.json \
         config/systemd/union.service \
         config/tmpfiles-union.conf \
         config/logrotate-union \
@@ -158,18 +173,18 @@ read_setting() {
     printf '%s' "$default_value"
 }
 
-reject_multiline() {
+reject_env_value() {
     label=$1
     value=$2
     case "$value" in
-        *'
-'*) die "$label must be a single line" ;;
+        *[[:cntrl:]]*) die "$label must be a single line without control characters" ;;
     esac
 }
 
 write_env_line() {
     key=$1
     value=$2
+    reject_env_value "$key" "$value"
     escaped=$(printf '%s' "$value" | sed 's/\\/\\\\/g; s/"/\\"/g')
     printf '%s="%s"\n' "$key" "$escaped"
 }
@@ -194,6 +209,11 @@ configure_environment() {
     fi
     decoded_size=$(printf '%s' "$secret_key" | openssl base64 -d -A 2>/dev/null | wc -c | tr -d ' ')
     [ "$decoded_size" = 32 ] || die "UNION_SECRET_KEY must decode to exactly 32 bytes"
+    secret_key_id=${UNION_SECRET_KEY_ID:-primary}
+    case "$secret_key_id" in
+        *[!a-zA-Z0-9_-]*|'') die "UNION_SECRET_KEY_ID must contain only ASCII letters, digits, '-' or '_'" ;;
+    esac
+    [ "${#secret_key_id}" -le 64 ] || die "UNION_SECRET_KEY_ID must be at most 64 characters"
 
     bootstrap_password=${UNION_BOOTSTRAP_PASSWORD:-}
     if [ -z "$bootstrap_password" ]; then
@@ -205,15 +225,29 @@ configure_environment() {
     ram_url=$(read_setting UNION_RAM_PUBLIC_URL "ram public HTTPS URL" "https://files.home.lan")
     site_url=$(read_setting PUBLIC_SITE_URL "blog public HTTPS URL" "https://home.lan")
     retention_days=${UNION_RETENTION_DAYS:-90}
+    require_local_static=${UNION_REQUIRE_LOCAL_STATIC_ARTIFACTS:-0}
     rust_log=${RUST_LOG:-union=info,tower_http=info}
 
     case "$ram_url" in https://*) ;; *) die "UNION_RAM_PUBLIC_URL must use https://" ;; esac
     case "$site_url" in https://*) ;; *) die "PUBLIC_SITE_URL must use https://" ;; esac
     case "$retention_days" in *[!0-9]*|'') die "UNION_RETENTION_DAYS must be numeric" ;; esac
+    case "$require_local_static" in 0|1|true|false|TRUE|FALSE|yes|no|YES|NO) ;; *) die "UNION_REQUIRE_LOCAL_STATIC_ARTIFACTS must be boolean" ;; esac
 
-    reject_multiline UNION_DATABASE_URL "$database_url"
-    reject_multiline UNION_SECRET_KEY "$secret_key"
-    reject_multiline UNION_BOOTSTRAP_PASSWORD "$bootstrap_password"
+    for env_setting in \
+        "UNION_DATABASE_URL:$database_url" \
+        "UNION_SECRET_KEY:$secret_key" \
+        "UNION_SECRET_KEY_ID:$secret_key_id" \
+        "UNION_BOOTSTRAP_PASSWORD:$bootstrap_password" \
+        "UNION_RAM_PUBLIC_URL:$ram_url" \
+        "UNION_RETENTION_DAYS:$retention_days" \
+        "PUBLIC_SITE_URL:$site_url" \
+        "UNION_REQUIRE_LOCAL_STATIC_ARTIFACTS:$require_local_static" \
+        "RUST_LOG:$rust_log"
+    do
+        setting_name=${env_setting%%:*}
+        setting_value=${env_setting#*:}
+        reject_env_value "$setting_name" "$setting_value"
+    done
 
     if [ "$DRY_RUN" -eq 1 ]; then
         note "dry-run: write protected environment file to $ENV_FILE"
@@ -227,10 +261,12 @@ configure_environment() {
         write_env_line UNION_ENV production
         write_env_line UNION_DATABASE_URL "$database_url"
         write_env_line UNION_SECRET_KEY "$secret_key"
+        write_env_line UNION_SECRET_KEY_ID "$secret_key_id"
         write_env_line UNION_BOOTSTRAP_PASSWORD "$bootstrap_password"
         write_env_line UNION_RAM_PUBLIC_URL "$ram_url"
         write_env_line UNION_RETENTION_DAYS "$retention_days"
         write_env_line PUBLIC_SITE_URL "$site_url"
+        write_env_line UNION_REQUIRE_LOCAL_STATIC_ARTIFACTS "$require_local_static"
         write_env_line RUST_LOG "$rust_log"
     } > "$temporary"
     chown root:"$SERVICE_GROUP" "$temporary"
@@ -245,15 +281,15 @@ build_projects() {
     project_root=$1
     check_commands
 
-    run_in "$project_root" cargo test --manifest-path back/union/Cargo.toml --all-targets --locked
-    run_in "$project_root" cargo build --manifest-path back/union/Cargo.toml --release --locked
-    run_in "$project_root" cargo test --manifest-path back/ram/Cargo.toml --all-targets --locked
-    run_in "$project_root" cargo build --manifest-path back/ram/Cargo.toml --release --locked
+    run_in "$project_root" cargo test --manifest-path union/source/Cargo.toml --all-targets --locked
+    run_in "$project_root" cargo build --manifest-path union/source/Cargo.toml --release --locked
+    run_in "$project_root" cargo test --manifest-path ram/source/Cargo.toml --all-targets --locked
+    run_in "$project_root" cargo build --manifest-path ram/source/Cargo.toml --release --locked
 
-    run_in "$project_root/back/back" npm ci
-    run_in "$project_root/back/back" npm run build
-    run_in "$project_root/back/blog" npm ci
-    run_in "$project_root/back/blog" npm run build
+    run_in "$project_root/back/source" npm ci
+    run_in "$project_root/back/source" npm run build
+    run_in "$project_root/blog/source" npm ci
+    run_in "$project_root/blog/source" npm run build
 }
 
 ensure_service_account() {
@@ -280,7 +316,7 @@ stage_source() {
         --exclude='./.git' \
         --exclude='./.agents' \
         --exclude='./.codex' \
-        --exclude='./data' \
+        --exclude='*/data/*' \
         --exclude='*/target' \
         --exclude='*/node_modules' \
         --exclude='*/dist' \
@@ -340,28 +376,37 @@ install_project() {
     build_projects "$DEPLOY_ROOT"
 
     run install -d -o root -g root -m 0755 "$DEPLOY_ROOT/bin"
-    run install -o root -g root -m 0755 "$DEPLOY_ROOT/back/union/target/release/union" "$DEPLOY_ROOT/bin/union"
-    run install -o root -g root -m 0755 "$DEPLOY_ROOT/back/ram/target/release/ram" "$DEPLOY_ROOT/bin/ram"
+    run install -o root -g root -m 0755 "$DEPLOY_ROOT/union/source/target/release/union" "$DEPLOY_ROOT/bin/union"
+    run install -o root -g root -m 0755 "$DEPLOY_ROOT/ram/source/target/release/ram" "$DEPLOY_ROOT/bin/ram"
 
+    run chown root:"$SERVICE_GROUP" "$DEPLOY_ROOT/blog/source"
+    run chmod 1775 "$DEPLOY_ROOT/blog/source"
+    run chmod -R u+rwX,go+rX-w "$DEPLOY_ROOT/back/source/dist" "$DEPLOY_ROOT/blog/source/dist"
     run install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0700 \
-        "$DEPLOY_ROOT/data" \
-        "$DEPLOY_ROOT/data/blog/logs" \
-        "$DEPLOY_ROOT/data/ram/logs"
-    run chown -R "$SERVICE_USER:$SERVICE_GROUP" \
-        "$DEPLOY_ROOT/back/blog/node_modules" \
-        "$DEPLOY_ROOT/back/blog/dist"
-    if [ -d "$DEPLOY_ROOT/back/blog/.astro" ]; then
-        run chown -R "$SERVICE_USER:$SERVICE_GROUP" "$DEPLOY_ROOT/back/blog/.astro"
-    fi
+        "$DEPLOY_ROOT/back/data" \
+        "$DEPLOY_ROOT/blog/data" \
+        "$DEPLOY_ROOT/blog/data/logs" \
+        "$DEPLOY_ROOT/ram/data" \
+        "$DEPLOY_ROOT/ram/data/logs" \
+        "$DEPLOY_ROOT/union/data"
+    run chown -R "$SERVICE_USER:$SERVICE_GROUP" "$DEPLOY_ROOT/blog/source/dist"
+    run install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0755 \
+        "$DEPLOY_ROOT/blog/source/dist.next" \
+        "$DEPLOY_ROOT/blog/source/dist.previous"
+    run install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0700 \
+        "$DEPLOY_ROOT/blog/source/.astro" \
+        "$DEPLOY_ROOT/blog/source/node_modules/.vite"
+    run chown -R "$SERVICE_USER:$SERVICE_GROUP" "$DEPLOY_ROOT/blog/source/.astro"
+    run chown -R "$SERVICE_USER:$SERVICE_GROUP" "$DEPLOY_ROOT/blog/source/node_modules/.vite"
 
     render_service_files
     run systemd-tmpfiles --create "$TMPFILES_DIR/union.conf"
     run systemd-analyze verify "$SYSTEMD_DIR/union.service"
     run systemctl daemon-reload
     run rm -rf \
-        "$DEPLOY_ROOT/back/union/target" \
-        "$DEPLOY_ROOT/back/ram/target" \
-        "$DEPLOY_ROOT/back/back/node_modules"
+        "$DEPLOY_ROOT/union/source/target" \
+        "$DEPLOY_ROOT/ram/source/target" \
+        "$DEPLOY_ROOT/back/source/node_modules"
 
     if [ "$START_AFTER_INSTALL" -eq 1 ]; then
         start_service

@@ -13,24 +13,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup show
-      - working-directory: back/union
+      - working-directory: union/source
         run: cargo fmt --all -- --check
-      - working-directory: back/union
+      - working-directory: union/source
         run: cargo test --all-targets --locked
-      - working-directory: back/union
+      - working-directory: union/source
         run: cargo clippy --all-targets --all-features --locked -- -D warnings
-      - working-directory: back/union
+      - working-directory: union/source
         run: cargo build --release --locked
-      - working-directory: back/ram
+      - working-directory: ram/source
         run: cargo test --all-targets --locked
-      - working-directory: back/ram
+      - working-directory: ram/source
         run: cargo clippy --all-targets --locked -- -D warnings
 
   web:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        app: [back/back, back/blog]
+        app: [back/source, blog/source]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,5 +50,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cargo install cargo-audit --locked
-      - run: cargo audit --file back/union/Cargo.lock
-      - run: cargo audit --file back/ram/Cargo.lock
+      - run: cargo audit --file union/source/Cargo.lock
+      - run: cargo audit --file ram/source/Cargo.lock

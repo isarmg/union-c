@@ -8,7 +8,9 @@
 **/.vite/
 
 # Runtime state is created by union on Linux and never belongs in source control
-data/
+**/data/*
+!**/data/
+!**/data/.gitkeep
 
 # Local environment files (only the documented template is versioned)
 .env*

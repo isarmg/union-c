@@ -21,16 +21,16 @@ jobs:
         run: rustup show
 
       - name: Test union
-        run: cargo test --manifest-path back/union/Cargo.toml --all-targets --locked
+        run: cargo test --manifest-path union/source/Cargo.toml --all-targets --locked
 
       - name: Build union
-        run: cargo build --manifest-path back/union/Cargo.toml --release --locked
+        run: cargo build --manifest-path union/source/Cargo.toml --release --locked
 
       - name: Test ram
-        run: cargo test --manifest-path back/ram/Cargo.toml --all-targets --locked
+        run: cargo test --manifest-path ram/source/Cargo.toml --all-targets --locked
 
       - name: Build ram
-        run: cargo build --manifest-path back/ram/Cargo.toml --release --locked
+        run: cargo build --manifest-path ram/source/Cargo.toml --release --locked
 
       - name: Package
         env:
@@ -39,8 +39,8 @@ jobs:
           PACKAGE="union-${VERSION}-linux-x86_64"
 
           mkdir -p "${PACKAGE}/bin"
-          install -m 0755 back/union/target/release/union "${PACKAGE}/bin/union"
-          install -m 0755 back/ram/target/release/ram "${PACKAGE}/bin/ram"
+          install -m 0755 union/source/target/release/union "${PACKAGE}/bin/union"
+          install -m 0755 ram/source/target/release/ram "${PACKAGE}/bin/ram"
 
           cp README.md "${PACKAGE}/"
           cp -r config "${PACKAGE}/"

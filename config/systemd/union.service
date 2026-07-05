@@ -30,9 +30,11 @@ ProtectClock=true
 RestrictSUIDSGID=true
 LockPersonality=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadWritePaths=/opt/union/data
-ReadWritePaths=/opt/union/back/blog/dist /opt/union/back/blog/dist.next /opt/union/back/blog/dist.previous
-ReadWritePaths=/opt/union/back/blog/.astro /opt/union/back/blog/node_modules/.vite
+ReadWritePaths=/opt/union/back/data
+ReadWritePaths=/opt/union/blog/data
+ReadWritePaths=/opt/union/ram/data
+ReadWritePaths=/opt/union/union/data
+ReadWritePaths=/opt/union/blog/source
 
 [Install]
 WantedBy=multi-user.target

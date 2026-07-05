@@ -1,4 +1,4 @@
-/opt/union/data/ram/logs/*.log {
+/opt/union/ram/data/logs/*.log {
     daily
     rotate 14
     size 20M
