@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev --host 127.0.0.1 --port 4321",
-    "typecheck": "tsc --noEmit --project tsconfig.json",
+    "typecheck": "ASTRO_TELEMETRY_DISABLED=1 astro sync && tsc --noEmit --project tsconfig.json",
     "build": "npm run typecheck && ASTRO_TELEMETRY_DISABLED=1 astro build --outDir dist.next && node ./scripts/copy-blog-assets.mjs dist.next && node ./scripts/publish-static.mjs",
     "preview": "ASTRO_TELEMETRY_DISABLED=1 astro preview --host 127.0.0.1 --port 4321"
   },
