@@ -12,8 +12,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: git diff --check
       - run: rustup show
       - working-directory: union/source
+        run: cargo fmt --all -- --check
+      - working-directory: ram/source
         run: cargo fmt --all -- --check
       - working-directory: union/source
         run: cargo test --all-targets --locked
@@ -25,6 +28,8 @@ jobs:
         run: cargo test --all-targets --locked
       - working-directory: ram/source
         run: cargo clippy --all-targets --locked -- -D warnings
+      - working-directory: ram/source
+        run: cargo build --release --locked
 
   web:
     runs-on: ubuntu-latest
@@ -42,6 +47,8 @@ jobs:
         run: npm ci
       - working-directory: ${{ matrix.app }}
         run: npm audit --audit-level=high
+      - working-directory: ${{ matrix.app }}
+        run: npm run typecheck
       - working-directory: ${{ matrix.app }}
         run: npm run build
 

@@ -154,3 +154,22 @@ fn write_private_key_file(path: &str, content: &[u8]) -> std::io::Result<()> {
     file.write_all(content)?;
     file.sync_all()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_supported_encrypted_prefixes() {
+        assert!(is_encrypted("enc:v1:payload"));
+        assert!(is_encrypted("enc:v2:primary:payload"));
+        assert!(!is_encrypted("plain"));
+    }
+
+    #[test]
+    fn decrypt_rejects_plaintext_and_malformed_payloads() {
+        assert!(decrypt("plain").is_err());
+        assert!(decrypt("enc:v2:primary:not-base64").is_err());
+        assert!(decrypt("enc:v2:primary:AAAA").is_err());
+    }
+}

@@ -2372,6 +2372,78 @@ mod tests {
         let _ = std::fs::remove_dir_all(outside);
     }
 
+    #[tokio::test]
+    async fn single_range_request_returns_expected_slice() {
+        let root = unique_temp_dir("range-root");
+        let file_path = root.join("sample.txt");
+        std::fs::write(&file_path, b"abcdef").expect("write sample file");
+        let args = Args {
+            serve_path: root.clone(),
+            ..Args::default()
+        };
+        let server = Server::init(args, Arc::new(AtomicBool::new(true))).expect("server init");
+        let mut headers = HeaderMap::new();
+        headers.insert(RANGE, HeaderValue::from_static("bytes=1-3"));
+        let mut res = Response::default();
+
+        server
+            .handle_send_file(&file_path, &headers, false, &mut res)
+            .await
+            .expect("send range");
+
+        assert_eq!(res.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            res.headers()
+                .get(CONTENT_RANGE)
+                .and_then(|value| value.to_str().ok()),
+            Some("bytes 1-3/6")
+        );
+        let body = res
+            .into_body()
+            .collect()
+            .await
+            .expect("read range body")
+            .to_bytes();
+        assert_eq!(&body[..], b"bcd");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn excessive_multipart_range_request_is_unsatisfiable() {
+        let root = unique_temp_dir("range-limit-root");
+        let file_path = root.join("sample.txt");
+        std::fs::write(&file_path, b"abcdef").expect("write sample file");
+        let args = Args {
+            serve_path: root.clone(),
+            ..Args::default()
+        };
+        let server = Server::init(args, Arc::new(AtomicBool::new(true))).expect("server init");
+        let mut headers = HeaderMap::new();
+        let ranges = (0..=MAX_MULTIPART_RANGES)
+            .map(|_| "0-0")
+            .collect::<Vec<_>>()
+            .join(",");
+        headers.insert(
+            RANGE,
+            HeaderValue::from_str(&format!("bytes={ranges}")).expect("range header"),
+        );
+        let mut res = Response::default();
+
+        server
+            .handle_send_file(&file_path, &headers, false, &mut res)
+            .await
+            .expect("send range");
+
+        assert_eq!(res.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(
+            res.headers()
+                .get(CONTENT_RANGE)
+                .and_then(|value| value.to_str().ok()),
+            Some("bytes */6")
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn acceptable_ranges_rejects_excessive_multipart_requests() {
         let too_many = (0..=MAX_MULTIPART_RANGES as u64)

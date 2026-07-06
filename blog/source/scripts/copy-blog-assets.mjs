@@ -8,7 +8,7 @@ const source = resolve(appRoot, "..", "data", "files");
 const outputDir = process.argv[2] ?? "dist.next";
 const target = resolve(appRoot, outputDir, "blog-assets");
 const publicExtensions = new Set([
-  ".avif", ".gif", ".jpg", ".jpeg", ".png", ".svg", ".webp",
+  ".avif", ".gif", ".jpg", ".jpeg", ".png", ".webp",
   ".pdf", ".txt", ".zip"
 ]);
 
