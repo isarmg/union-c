@@ -73,6 +73,8 @@ const RESUMABLE_UPLOAD_MIN_SIZE: u64 = 20971520; // 20M
 const HEALTH_CHECK_PATH: &str = "__ram__/health";
 const ADMIN_AUTH_PATH: &str = "__ram__/admin/auth";
 const ADMIN_BODY_LIMIT: usize = 64 * 1024;
+const MAX_MULTIPART_RANGES: usize = 16;
+const MAX_MULTIPART_RANGE_BYTES: u64 = 16 * 1024 * 1024;
 pub const MAX_SUBPATHS_COUNT: u64 = 1000;
 
 /// HTTP 服务处理器。
@@ -1005,7 +1007,7 @@ impl Server {
         head_only: bool,
         res: &mut Response,
     ) -> Result<()> {
-        // 文件下载支持缓存校验和 Range 分段读取。大文件不会一次性读入内存。
+        // 文件下载支持缓存校验和 Range 分段读取。普通和单段 Range 大文件走流式响应。
         let (file, meta) = tokio::join!(fs::File::open(path), fs::metadata(path),);
         let (mut file, meta) = (file?, meta?);
         let size = meta.len();
@@ -1062,6 +1064,7 @@ impl Server {
                     .to_str()
                     .ok()
                     .and_then(|range| parse_range(range, size))
+                    .and_then(acceptable_ranges)
             })
         } else {
             None
@@ -1234,10 +1237,8 @@ impl Server {
         res: &mut Response,
     ) -> Result<()> {
         // token 由认证模块生成，响应为纯文本，前端可拼到下载 URL 上。
-        let output = self
-            .args
-            .auth
-            .generate_token(relative_path, &user.unwrap_or_default())?;
+        let auth = self.auth.read().await;
+        let output = auth.generate_token(relative_path, &user.unwrap_or_default())?;
         res.headers_mut()
             .typed_insert(ContentType::from(mime_guess::mime::TEXT_PLAIN_UTF_8));
         res.headers_mut()
@@ -1324,10 +1325,7 @@ impl Server {
             return Ok(());
         }
 
-        ensure_path_parent(&dest).await?;
-
-        if self.guard_root_contained(&dest).await {
-            status_bad_request(res, "Invalid Destination");
+        if !self.ensure_destination_parent(&dest, res).await? {
             return Ok(());
         }
 
@@ -1346,10 +1344,7 @@ impl Server {
             }
         };
 
-        ensure_path_parent(&dest).await?;
-
-        if self.guard_root_contained(&dest).await {
-            status_bad_request(res, "Invalid Destination");
+        if !self.ensure_destination_parent(&dest, res).await? {
             return Ok(());
         }
 
@@ -1534,6 +1529,19 @@ impl Server {
             }
         }
         !self.is_root_contained(check_path.as_path()).await
+    }
+
+    async fn ensure_destination_parent(&self, path: &Path, res: &mut Response) -> Result<bool> {
+        if self.guard_root_contained(path).await {
+            status_bad_request(res, "Invalid Destination");
+            return Ok(false);
+        }
+        ensure_path_parent(path).await?;
+        if self.guard_root_contained(path).await {
+            status_bad_request(res, "Invalid Destination");
+            return Ok(false);
+        }
+        Ok(true)
     }
 
     async fn is_root_contained(&self, path: &Path) -> bool {
@@ -1925,6 +1933,22 @@ async fn ensure_path_parent(path: &Path) -> Result<()> {
     Ok(())
 }
 
+fn acceptable_ranges(ranges: Vec<(u64, u64)>) -> Option<Vec<(u64, u64)>> {
+    if ranges.is_empty() || ranges.len() > MAX_MULTIPART_RANGES {
+        return None;
+    }
+    if ranges.len() > 1 {
+        let mut total = 0_u64;
+        for (start, end) in &ranges {
+            total = total.checked_add(end.checked_sub(*start)?.checked_add(1)?)?;
+        }
+        if total > MAX_MULTIPART_RANGE_BYTES {
+            return None;
+        }
+    }
+    Some(ranges)
+}
+
 fn add_cors(res: &mut Response) {
     // CORS 开启后允许浏览器跨域访问 ram，适合前端单独部署的场景。
     res.headers_mut()
@@ -2257,6 +2281,12 @@ mod tests {
         .expect("valid basic auth header")
     }
 
+    fn unique_temp_dir(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!("ram-{name}-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&path).expect("create test directory");
+        std::fs::canonicalize(path).expect("canonical test directory")
+    }
+
     #[tokio::test]
     async fn destination_permission_uses_hot_reloaded_auth() {
         let args = Args {
@@ -2281,5 +2311,78 @@ mod tests {
                 .destination_allowed("/old/file.txt", &method, Some(&auth))
                 .await
         );
+    }
+
+    #[tokio::test]
+    async fn tokengen_uses_hot_reloaded_auth() {
+        let args = Args {
+            auth: AccessControl::new(&["old:password@/old:rw"]).expect("old auth"),
+            ..Args::default()
+        };
+        let server = Server::init(args, Arc::new(AtomicBool::new(true))).expect("server init");
+        *server.auth.write().await =
+            AccessControl::new(&["new:password@/new:rw"]).expect("new auth");
+
+        let mut res = Response::default();
+        server
+            .handle_tokengen("/new/file.txt", Some("new".to_string()), &mut res)
+            .await
+            .expect("generate token");
+
+        let token = String::from_utf8(
+            res.into_body()
+                .collect()
+                .await
+                .expect("read token body")
+                .to_bytes()
+                .to_vec(),
+        )
+        .expect("token is utf-8");
+        let access = server
+            .auth
+            .read()
+            .await
+            .guard("/new/file.txt", &Method::GET, None, Some(&token), false)
+            .1;
+        assert!(access.is_some());
+    }
+
+    #[tokio::test]
+    async fn destination_parent_rejects_symlink_escape_before_creating_dirs() {
+        let root = unique_temp_dir("root");
+        let outside = unique_temp_dir("outside");
+        std::os::unix::fs::symlink(&outside, root.join("link")).expect("create symlink");
+        let args = Args {
+            serve_path: root.clone(),
+            allow_symlink: false,
+            ..Args::default()
+        };
+        let server = Server::init(args, Arc::new(AtomicBool::new(true))).expect("server init");
+        let mut res = Response::default();
+
+        let allowed = server
+            .ensure_destination_parent(&root.join("link/new/file.txt"), &mut res)
+            .await
+            .expect("check destination parent");
+
+        assert!(!allowed);
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        assert!(!outside.join("new").exists());
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(outside);
+    }
+
+    #[test]
+    fn acceptable_ranges_rejects_excessive_multipart_requests() {
+        let too_many = (0..=MAX_MULTIPART_RANGES as u64)
+            .map(|offset| (offset, offset))
+            .collect::<Vec<_>>();
+        assert!(acceptable_ranges(too_many).is_none());
+
+        let too_large = vec![(0, MAX_MULTIPART_RANGE_BYTES), (0, 0)];
+        assert!(acceptable_ranges(too_large).is_none());
+
+        let single_large = vec![(0, MAX_MULTIPART_RANGE_BYTES)];
+        assert_eq!(acceptable_ranges(single_large.clone()), Some(single_large));
     }
 }

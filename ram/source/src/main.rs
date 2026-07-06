@@ -261,10 +261,7 @@ fn check_addrs(args: &Args) -> Result<(Vec<BindAddr>, Vec<BindAddr>)> {
                     }
                 }
             },
-            BindAddr::SocketPath(_) => {
-                new_addrs.push(bind_addr.clone());
-                print_addrs.push(bind_addr.clone())
-            }
+            BindAddr::SocketPath(_) => print_addrs.push(bind_addr.clone()),
         }
     }
     print_addrs.sort_unstable();
@@ -334,5 +331,24 @@ async fn shutdown_signal() {
     tokio::select! {
         result = ctrl_c => result.expect("Failed to install CTRL+C handler"),
         _ = terminate => {},
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_addrs_keeps_unix_socket_bind_once() {
+        let socket = BindAddr::SocketPath("@ram-test".to_string());
+        let args = Args {
+            addrs: vec![socket.clone()],
+            ..Args::default()
+        };
+
+        let (new_addrs, print_addrs) = check_addrs(&args).expect("check addrs");
+
+        assert_eq!(new_addrs, vec![socket.clone()]);
+        assert_eq!(print_addrs, vec![socket]);
     }
 }

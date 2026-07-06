@@ -110,13 +110,16 @@ pub fn parse_range(range: &str, size: u64) -> Option<Vec<(u64, u64)>> {
     if unit != "bytes" {
         return None;
     }
+    if size == 0 {
+        return None;
+    }
 
     let mut result = Vec::new();
     for range in ranges.split(',') {
         let (start, end) = range.trim().split_once('-')?;
         if start.is_empty() {
             let offset = end.parse::<u64>().ok()?;
-            if offset <= size {
+            if offset > 0 && offset <= size {
                 result.push((size - offset, size - 1));
             } else {
                 return None;
@@ -199,6 +202,9 @@ mod tests {
         assert_eq!(parse_range("bytes=0-199,", 500), None);
         assert_eq!(parse_range("bytes=0-199, 500-", 500), None);
         assert_eq!(parse_range("items=0-1", 500), None);
+        assert_eq!(parse_range("bytes=-0", 500), None);
+        assert_eq!(parse_range("bytes=0-", 0), None);
+        assert_eq!(parse_range("bytes=-1", 0), None);
     }
 
     #[test]

@@ -20,6 +20,15 @@ jobs:
       - name: Show toolchain
         run: rustup show
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            back/source/package-lock.json
+            blog/source/package-lock.json
+
       - name: Test union
         run: cargo test --manifest-path union/source/Cargo.toml --all-targets --locked
 
@@ -32,6 +41,18 @@ jobs:
       - name: Build ram
         run: cargo build --manifest-path ram/source/Cargo.toml --release --locked
 
+      - name: Build back
+        working-directory: back/source
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build blog
+        working-directory: blog/source
+        run: |
+          npm ci
+          npm run build
+
       - name: Package
         env:
           VERSION: ${{ github.ref_name }}
@@ -42,9 +63,24 @@ jobs:
           install -m 0755 union/source/target/release/union "${PACKAGE}/bin/union"
           install -m 0755 ram/source/target/release/ram "${PACKAGE}/bin/ram"
 
-          cp README.md "${PACKAGE}/"
-          cp -r config "${PACKAGE}/"
+          cp README.md rust-toolchain.toml .node-version "${PACKAGE}/"
           cp .env.production.example "${PACKAGE}/"
+          cp -r config scripts "${PACKAGE}/"
+
+          mkdir -p "${PACKAGE}/back" "${PACKAGE}/blog" "${PACKAGE}/union" "${PACKAGE}/ram"
+          cp -r back/doc back/source "${PACKAGE}/back/"
+          cp -r blog/doc blog/source "${PACKAGE}/blog/"
+          cp -r union/doc union/source "${PACKAGE}/union/"
+          cp -r ram/doc ram/source "${PACKAGE}/ram/"
+
+          rm -rf \
+            "${PACKAGE}/back/source/node_modules" \
+            "${PACKAGE}/back/source/dist.next" \
+            "${PACKAGE}/blog/source/node_modules" \
+            "${PACKAGE}/blog/source/.astro" \
+            "${PACKAGE}/blog/source/dist.next" \
+            "${PACKAGE}/union/source/target" \
+            "${PACKAGE}/ram/source/target"
 
           tar -czf "${PACKAGE}.tar.gz" "${PACKAGE}"
           sha256sum "${PACKAGE}.tar.gz" > "${PACKAGE}.tar.gz.sha256"
