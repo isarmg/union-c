@@ -11,7 +11,7 @@ jobs:
   rust:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: git diff --check
       - run: rustup show
       - working-directory: union/source
@@ -37,7 +37,7 @@ jobs:
       matrix:
         app: [back/source, blog/source]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
@@ -55,7 +55,7 @@ jobs:
   rustsec:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: cargo install cargo-audit --locked
       - run: cargo audit --file union/source/Cargo.lock
       - run: cargo audit --file ram/source/Cargo.lock
