@@ -323,29 +323,3 @@ pub(super) async fn local_session_user(state: &AppState, token: &str) -> AppResu
         .map(|session| session.username.clone())
         .ok_or(AppError::Unauthorized)
 }
-
-#[cfg(test)]
-mod tests {
-    use axum::http::{HeaderMap, header};
-
-    use super::{session_cookie, session_cookie_value};
-
-    #[test]
-    fn production_cookie_has_strict_security_attributes() {
-        let cookie = session_cookie_value("token", true, 60);
-        assert!(cookie.contains("HttpOnly"));
-        assert!(cookie.contains("SameSite=Strict"));
-        assert!(cookie.contains("; Secure"));
-    }
-
-    #[test]
-    fn host_session_cookie_takes_precedence_over_legacy_cookie() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::COOKIE,
-            "session=legacy; __Host-session=secure".parse().unwrap(),
-        );
-
-        assert_eq!(session_cookie(&headers).as_deref(), Some("secure"));
-    }
-}

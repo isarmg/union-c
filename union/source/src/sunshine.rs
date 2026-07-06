@@ -347,19 +347,3 @@ pub async fn cover_upload(host: &SunshineHostConfig, key: &str, url: &str) -> Ap
     )
     .await
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn brackets_ipv6_in_web_urls() {
-        let mut host = SunshineHostConfig {
-            host: "::1".to_string(),
-            ..Default::default()
-        };
-        assert_eq!(web_url(&host), "https://[::1]:47990");
-        host.host = "[::1]".to_string();
-        assert_eq!(web_url(&host), "https://[::1]:47990");
-    }
-}

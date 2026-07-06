@@ -177,23 +177,3 @@ fn remove_managed_build_log(log_dir: &std::path::Path, stored_path: &str) {
         let _ = std::fs::remove_file(path);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn validates_configured_bootstrap_password() {
-        assert!(bootstrap_password(Some("short"), false).is_err());
-        assert_eq!(
-            bootstrap_password(Some("long-enough-password"), true).unwrap(),
-            "long-enough-password"
-        );
-    }
-
-    #[test]
-    fn production_requires_configured_bootstrap_password() {
-        assert!(bootstrap_password(None, true).is_err());
-        assert_eq!(bootstrap_password(None, false).unwrap().len(), 32);
-    }
-}

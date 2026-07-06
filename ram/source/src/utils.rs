@@ -155,7 +155,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_glob_key() {
+    fn glob_matches_supported_patterns() {
         assert!(glob("", ""));
         assert!(glob(".*", ".git"));
         assert!(glob("abc", "abc"));
@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_range() {
+    fn parse_range_supports_single_and_multi_ranges() {
         assert_eq!(parse_range("bytes=0-499", 500), Some(vec![(0, 499)]));
         assert_eq!(parse_range("bytes=0-", 500), Some(vec![(0, 499)]));
         assert_eq!(parse_range("bytes=299-", 500), Some(vec![(299, 499)]));
@@ -189,10 +189,23 @@ mod tests {
             parse_range("bytes=0-199, 100-399, 400-, -200", 500),
             Some(vec![(0, 199), (100, 399), (400, 499), (300, 499)])
         );
+    }
+
+    #[test]
+    fn parse_range_rejects_out_of_bounds_or_malformed_ranges() {
         assert_eq!(parse_range("bytes=500-", 500), None);
         assert_eq!(parse_range("bytes=-501", 500), None);
         assert_eq!(parse_range("bytes=0-500", 500), None);
         assert_eq!(parse_range("bytes=0-199,", 500), None);
         assert_eq!(parse_range("bytes=0-199, 500-", 500), None);
+        assert_eq!(parse_range("items=0-1", 500), None);
+    }
+
+    #[test]
+    fn uri_encoding_round_trips_unicode_path_segments() {
+        let encoded = encode_uri("目录/a b.txt");
+
+        assert_eq!(encoded, "%E7%9B%AE%E5%BD%95/a%20b.txt");
+        assert_eq!(decode_uri(&encoded).as_deref(), Some("目录/a b.txt"));
     }
 }

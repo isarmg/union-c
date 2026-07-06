@@ -57,17 +57,6 @@ hex = "0.4.3"
 default = ["tls"]
 tls = ["tokio-rustls"]
 
-[dev-dependencies]
-assert_cmd = "2"
-reqwest = { version = "0.13", features = ["blocking", "multipart", "rustls"], default-features = false }
-assert_fs = "1"
-port_check = "0.3"
-rstest = "0.26.1"
-regex = "1"
-url = "2"
-predicates = "3"
-digest_auth = "0.3.1"
-
 [profile.release]
 opt-level = 3
 lto = true

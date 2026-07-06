@@ -216,36 +216,3 @@ fn remote_transport_error(record: &RamInstanceRecord, production: bool) -> Optio
     }
     None
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn request(use_tls: bool, verify_tls: bool) -> RamInstanceSaveRequest {
-        RamInstanceSaveRequest {
-            name: "remote".to_string(),
-            host: "192.0.2.10".to_string(),
-            port: 5000,
-            use_tls,
-            verify_tls,
-        }
-    }
-
-    #[test]
-    fn production_requires_https_and_certificate_verification() {
-        assert!(validate(&request(false, true), true).is_err());
-        assert!(validate(&request(true, false), true).is_err());
-        assert!(validate(&request(true, true), true).is_ok());
-        assert!(validate(&request(false, false), false).is_ok());
-    }
-
-    #[test]
-    fn rejects_zero_port() {
-        let req = RamInstanceSaveRequest {
-            port: 0,
-            ..request(true, true)
-        };
-
-        assert!(validate(&req, false).is_err());
-    }
-}

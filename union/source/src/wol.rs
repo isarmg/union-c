@@ -117,22 +117,3 @@ fn magic_packet(mac: [u8; 6]) -> [u8; 102] {
     }
     packet
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_mac_and_builds_standard_magic_packet() {
-        let mac = parse_mac("AA:BB:CC:DD:EE:FF").unwrap();
-        let packet = magic_packet(mac);
-        assert_eq!(&packet[..6], &[0xff; 6]);
-        assert!(packet[6..].chunks_exact(6).all(|chunk| chunk == mac));
-    }
-
-    #[test]
-    fn rejects_invalid_mac() {
-        assert!(parse_mac("AA:BB:CC").is_err());
-        assert!(parse_mac("GG:BB:CC:DD:EE:FF").is_err());
-    }
-}

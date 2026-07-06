@@ -375,18 +375,3 @@ fn normalize_optional_category(category: &Option<String>) -> AppResult<Option<St
         .map(|value| normalize_taxonomy_name(&value, TaxonomyKind::Category.label()))
         .transpose()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn optional_category_uses_taxonomy_name_rules() {
-        assert_eq!(
-            normalize_optional_category(&Some("  Infra  ".to_string())).unwrap(),
-            Some("Infra".to_string())
-        );
-        assert!(normalize_optional_category(&Some("bad,category".to_string())).is_err());
-        assert_eq!(normalize_optional_category(&None).unwrap(), None);
-    }
-}

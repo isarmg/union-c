@@ -173,11 +173,12 @@ pub async fn update_auth_for(
         });
     }
 
-    if let Some(instance_id) = service.strip_prefix("ram:") {
+    let remote_apply = if let Some(instance_id) = service.strip_prefix("ram:") {
         let credential = current_management
             .as_ref()
             .or(management_auth.as_ref())
-            .ok_or_else(|| AppError::BadRequest("远程 RAM 必须先配置管理员账号密码".to_string()))?;
+            .ok_or_else(|| AppError::BadRequest("远程 RAM 必须先配置管理员账号密码".to_string()))?
+            .clone();
         let management_username = management_auth.as_ref().map(|pair| pair.0.as_str());
         let mut remote_rules = next_rules
             .iter()
@@ -187,8 +188,10 @@ pub async fn update_auth_for(
         if let Some((username, password)) = &management_auth {
             remote_rules.insert(0, format!("{username}:{password}@/:rw"));
         }
-        ram_instances::apply_remote_auth(state, instance_id, credential, &remote_rules).await?;
-    }
+        Some((instance_id.to_string(), credential, remote_rules))
+    } else {
+        None
+    };
 
     database::replace_service_accounts(state.db().as_ref(), service, &account_inputs).await?;
     database::insert_audit(
@@ -199,28 +202,60 @@ pub async fn update_auth_for(
     )
     .await?;
 
-    let ram_reloaded = if reload_managed_ram {
-        service_manager::reload_managed_ram(state).await?
+    let mut applied = false;
+    let mut ram_reloaded = false;
+    let mut apply_error = None;
+    if let Some((instance_id, credential, remote_rules)) = remote_apply {
+        match ram_instances::apply_remote_auth(state, &instance_id, &credential, &remote_rules)
+            .await
+        {
+            Ok(()) => applied = true,
+            Err(error) => apply_error = Some(error.to_string()),
+        }
+    } else if reload_managed_ram {
+        match service_manager::reload_managed_ram(state).await {
+            Ok(reloaded) => {
+                ram_reloaded = reloaded;
+                applied = reloaded;
+            }
+            Err(error) => apply_error = Some(error.to_string()),
+        }
     } else {
-        false
-    };
+        applied = false;
+    }
     let accounts = database::service_accounts(state.db().as_ref(), service).await?;
     let response = response_from_accounts(&state.settings, accounts);
+    let message = auth_update_message(service, applied, ram_reloaded, apply_error.as_deref());
 
     Ok(RamAuthUpdateResponse {
         saved: true,
-        applied: ram_reloaded,
+        applied,
         ram_reloaded,
         storage: STORAGE_LABEL.to_string(),
         management_auth_configured: response.management_auth_configured,
         management_username: response.management_username,
         rules: response.rules,
-        message: if ram_reloaded {
-            "ram 账号已保存到 PostgreSQL，并已应用到当前运行服务".to_string()
-        } else if service.starts_with("ram:") {
-            "远程 RAM 账号已热更新，并保存到 PostgreSQL".to_string()
-        } else {
-            "ram 账号已保存到 PostgreSQL；ram 下次启动会直接使用".to_string()
-        },
+        message,
     })
+}
+
+fn auth_update_message(
+    service: &str,
+    applied: bool,
+    ram_reloaded: bool,
+    apply_error: Option<&str>,
+) -> String {
+    if let Some(error) = apply_error {
+        if service.starts_with("ram:") {
+            return format!("远程 RAM 账号已保存到 PostgreSQL，但热更新失败：{error}");
+        }
+        return format!("ram 账号已保存到 PostgreSQL，但未能重载当前运行服务：{error}");
+    }
+    if ram_reloaded {
+        return "ram 账号已保存到 PostgreSQL，并已应用到当前运行服务".to_string();
+    }
+    if service.starts_with("ram:") && applied {
+        return "远程 RAM 账号已保存到 PostgreSQL，并已热更新".to_string();
+    }
+    "ram 账号已保存到 PostgreSQL；ram 下次启动会直接使用".to_string()
 }

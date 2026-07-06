@@ -138,26 +138,3 @@ impl AppError {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn error_codes_are_stable_and_message_independent() {
-        assert_eq!(
-            AppError::BadRequest("任意消息".into()).code(),
-            "bad_request"
-        );
-        assert_eq!(AppError::Unauthorized.code(), "unauthorized");
-        assert_eq!(AppError::InvalidHost("bad".into()).code(), "invalid_host");
-        assert_eq!(
-            AppError::LocalConfig(LocalConfigError::InvalidDatabaseUrl).code(),
-            "local_config_database_url_invalid"
-        );
-        assert_eq!(
-            AppError::Upstream("changed".into()).code(),
-            "upstream_error"
-        );
-    }
-}

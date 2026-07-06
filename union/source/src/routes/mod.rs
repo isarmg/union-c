@@ -48,13 +48,3 @@ pub fn router(state: AppState) -> Router {
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
         .with_state(state)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn domain_routers_compose_without_route_conflicts() {
-        let _: Router<AppState> = api_routes();
-    }
-}

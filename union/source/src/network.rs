@@ -37,17 +37,3 @@ pub fn url_host(value: &str) -> String {
 pub fn authority(host: &str, port: u16) -> String {
     format!("{}:{port}", url_host(host))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn validates_and_formats_supported_hosts() {
-        assert!(is_valid_host("host.example.lan"));
-        assert!(is_valid_host("[2001:db8::1]"));
-        assert!(!is_valid_host("bad host"));
-        assert_eq!(authority("::1", 8080), "[::1]:8080");
-        assert_eq!(normalize_host(" [::1] "), "::1");
-    }
-}

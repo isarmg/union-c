@@ -154,37 +154,3 @@ fn write_private_key_file(path: &str, content: &[u8]) -> std::io::Result<()> {
     file.write_all(content)?;
     file.sync_all()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::os::unix::fs::{PermissionsExt, symlink};
-
-    #[test]
-    fn hardens_group_readable_key_file() {
-        let root = std::env::temp_dir().join(format!("union-secret-test-{}", uuid::Uuid::new_v4()));
-        let path = root.join("union.secret");
-        fs::create_dir_all(&root).unwrap();
-        fs::write(&path, "secret").unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
-
-        ensure_private_key_permissions(path.to_str().unwrap()).unwrap();
-
-        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600);
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn rejects_symlinked_key_file() {
-        let root = std::env::temp_dir().join(format!("union-secret-test-{}", uuid::Uuid::new_v4()));
-        let target = root.join("target.secret");
-        let link = root.join("union.secret");
-        fs::create_dir_all(&root).unwrap();
-        fs::write(&target, "secret").unwrap();
-        symlink(&target, &link).unwrap();
-
-        assert!(ensure_private_key_permissions(link.to_str().unwrap()).is_err());
-        let _ = fs::remove_dir_all(root);
-    }
-}

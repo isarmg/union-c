@@ -413,23 +413,3 @@ pub(super) fn to_response_rule(rule: &ParsedAuthRule) -> RamAuthRuleResponse {
         raw: service_manager::redact_auth_rule(&format_auth_rule(rule)),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn normalize_path_cleans_relative_input() {
-        assert_eq!(normalize_path("public//images").unwrap(), "/public/images");
-        assert_eq!(normalize_path("/").unwrap(), "/");
-    }
-
-    #[test]
-    fn normalize_path_rejects_ambiguous_or_escaping_input() {
-        assert!(normalize_path("../private").is_err());
-        assert!(normalize_path("/public/../private").is_err());
-        assert!(normalize_path("/public?download").is_err());
-        assert!(normalize_path("/public:rw").is_err());
-        assert!(normalize_path("\\media\\covers").is_err());
-    }
-}

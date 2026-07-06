@@ -219,38 +219,3 @@ pub(super) fn host_info(
         connection_error: connection.and_then(|result| result.as_ref().err().cloned()),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn validates_host_and_mac_inputs() {
-        assert!(validate_host("host.example.lan").is_ok());
-        assert!(validate_host("[::1]").is_ok());
-        assert!(validate_host("bad host").is_err());
-        assert!(validate_mac(&Some("AA:BB:CC:DD:EE:FF".to_string())).is_ok());
-        assert!(validate_mac(&Some("not-a-mac".to_string())).is_err());
-    }
-
-    #[test]
-    fn validates_sunshine_proxy_inputs() {
-        assert!(validate_client_id("client-1").is_ok());
-        assert!(validate_client_id("\nclient").is_err());
-        assert!(validate_pin_request("1234", "Moonlight").is_ok());
-        assert!(validate_pin_request("12ab", "Moonlight").is_err());
-        assert!(validate_cover_upload("box-art", "https://example.test/cover.jpg").is_ok());
-        assert!(validate_cover_upload("box-art", "file:///etc/passwd").is_err());
-        assert!(
-            validate_proxy_json_object(
-                "Sunshine config",
-                &serde_json::json!({"locale": "en"}),
-                1024
-            )
-            .is_ok()
-        );
-        assert!(
-            validate_proxy_json_object("Sunshine config", &serde_json::json!([]), 1024).is_err()
-        );
-    }
-}

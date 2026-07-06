@@ -21,8 +21,27 @@ pub(super) struct RamCommandSpec {
     pub(super) args: Vec<String>,
 }
 
-pub(super) async fn ram_command_spec(state: &AppState) -> AppResult<RamCommandSpec> {
+pub(super) async fn ram_start_command_spec(state: &AppState) -> AppResult<RamCommandSpec> {
     let auth_rules = ram_auth::auth_rules_for_ram(state).await?;
+    validate_auth_rules_for_start(state, &auth_rules)?;
+    write_private_ram_config(state, &auth_rules)?;
+    Ok(ram_command_spec(state))
+}
+
+fn ram_command_spec(state: &AppState) -> RamCommandSpec {
+    let mut args = vec!["--config".to_string(), RAM_GENERATED_CONFIG.to_string()];
+    if !state.settings.ram.auth_method.trim().is_empty() {
+        args.push("--auth-method".to_string());
+        args.push(state.settings.ram.auth_method.clone());
+    }
+    args.extend(state.settings.ram.extra_args.clone());
+    RamCommandSpec {
+        program: state.settings.ram.command.clone(),
+        args,
+    }
+}
+
+fn validate_auth_rules_for_start(state: &AppState, auth_rules: &[String]) -> AppResult<()> {
     if state.settings.production && auth_rules.is_empty() {
         return Err(AppError::BadRequest(
             "configure at least one ram account before starting it in production".to_string(),
@@ -33,17 +52,7 @@ pub(super) async fn ram_command_spec(state: &AppState) -> AppResult<RamCommandSp
             "replace weak ram credentials before starting it in production".to_string(),
         ));
     }
-    write_private_ram_config(state, &auth_rules)?;
-    let mut args = vec!["--config".to_string(), RAM_GENERATED_CONFIG.to_string()];
-    if !state.settings.ram.auth_method.trim().is_empty() {
-        args.push("--auth-method".to_string());
-        args.push(state.settings.ram.auth_method.clone());
-    }
-    args.extend(state.settings.ram.extra_args.clone());
-    Ok(RamCommandSpec {
-        program: state.settings.ram.command.clone(),
-        args,
-    })
+    Ok(())
 }
 
 fn weak_auth_rule(rule: &str) -> bool {
@@ -198,7 +207,7 @@ fn shell_quote(value: &str) -> String {
 
 /// 返回脱敏后的 ram 启动命令。
 pub async fn ram_command(state: &AppState) -> AppResult<RamCommandResponse> {
-    let command = ram_command_spec(state).await?;
+    let command = ram_command_spec(state);
     let redacted_args = redact_command_args(&command.args);
     Ok(RamCommandResponse {
         command_line: command_line(&command.program, &redacted_args),
@@ -287,6 +296,24 @@ pub(crate) fn redact_auth_rule(rule: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        app_config::{LocalConfig, Settings},
+        database,
+        state::AppState,
+    };
+
+    fn test_state() -> AppState {
+        AppState::new(
+            Settings::default(),
+            database::disconnected_pool().expect("disconnected pool"),
+            "$2b$12$C6UzMDM.H6dfI/f/IKcEe.4n3W4O4L2hS2T/1B1Q6VYF2M9mV0X5K".to_string(),
+            LocalConfig {
+                database_url: String::new(),
+                admin_username: "admin".to_string(),
+                admin_password_hash: "unused".to_string(),
+            },
+        )
+    }
 
     #[test]
     fn redacts_passwords_that_contain_at_signs() {
@@ -299,5 +326,18 @@ mod tests {
         assert!(weak_auth_rule("alice:short@/:rw"));
         assert!(weak_auth_rule("malformed"));
         assert!(!weak_auth_rule("alice:long-secure-password@/:rw"));
+    }
+
+    #[tokio::test]
+    async fn command_preview_does_not_require_database() {
+        let response = ram_command(&test_state())
+            .await
+            .expect("command preview should not query database");
+
+        assert_eq!(response.program, "ram");
+        assert_eq!(
+            response.args[..2],
+            ["--config".to_string(), RAM_GENERATED_CONFIG.to_string()]
+        );
     }
 }

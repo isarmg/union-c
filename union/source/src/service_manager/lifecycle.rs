@@ -18,7 +18,7 @@ use crate::{
 
 use super::{
     client::{ram_base_url, ram_health},
-    config::ram_command_spec,
+    config::ram_start_command_spec,
 };
 
 /// 启动由union托管的 ram 子进程。
@@ -85,7 +85,7 @@ async fn start_ram_locked(state: &AppState) -> AppResult<ActionResponse> {
     // `kill_on_drop(false)` 表示：当 Rust 这边的 `Child` 句柄被 drop 时，
     // 不自动发 SIGKILL 杀掉子进程。设为 false 是因为union重启后
     // 仍希望 ram 继续运行，不受union自身生命周期影响。
-    let command_spec = ram_command_spec(state).await?;
+    let command_spec = ram_start_command_spec(state).await?;
     let mut command = Command::new(&command_spec.program);
     command
         .args(&command_spec.args)

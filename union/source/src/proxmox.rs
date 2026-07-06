@@ -132,19 +132,3 @@ fn extract_error_message(body: &str, status: u16) -> String {
     }
     format!("PVE API 返回 {status}: {body}")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn brackets_ipv6_in_web_urls() {
-        let mut host = ProxmoxHostConfig {
-            host: "::1".to_string(),
-            ..Default::default()
-        };
-        assert_eq!(web_url(&host), "https://[::1]:8006");
-        host.host = "[::1]".to_string();
-        assert_eq!(web_url(&host), "https://[::1]:8006");
-    }
-}

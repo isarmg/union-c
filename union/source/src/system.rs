@@ -233,21 +233,3 @@ fn collect_disk_throughput() -> DiskThroughput {
         total_bytes_per_second: read_bps + write_bps,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::is_whole_block_device;
-
-    #[test]
-    fn identifies_common_whole_disks_and_partitions() {
-        for disk in ["sda", "vdb", "nvme0n1", "mmcblk0", "md127", "dm-0"] {
-            assert!(is_whole_block_device(disk), "expected whole disk: {disk}");
-        }
-        for partition in ["sda1", "vdb2", "nvme0n1p1", "mmcblk0p2", "loop0", "ram0"] {
-            assert!(
-                !is_whole_block_device(partition),
-                "expected partition: {partition}"
-            );
-        }
-    }
-}

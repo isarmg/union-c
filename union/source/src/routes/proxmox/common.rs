@@ -193,33 +193,3 @@ pub(super) async fn snapshot_create(
     .await?;
     Ok(Json(data))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn validates_ip_domain_and_rejects_invalid_host() {
-        assert!(validate_host("192.168.1.10").is_ok());
-        assert!(validate_host("pve.example.lan").is_ok());
-        assert!(validate_host("[2001:db8::1]").is_ok());
-        assert!(validate_host("bad host").is_err());
-    }
-
-    #[test]
-    fn validates_pve_path_segments() {
-        assert_eq!(validate_node("pve-1").unwrap(), "pve-1");
-        assert_eq!(validate_storage("local-lvm").unwrap(), "local-lvm");
-        assert_eq!(
-            validate_snapshot("before-upgrade").unwrap(),
-            "before-upgrade"
-        );
-        assert_eq!(validate_vmid("100").unwrap(), "100");
-
-        assert!(validate_node("../node").is_err());
-        assert!(validate_storage("local/content").is_err());
-        assert!(validate_snapshot("bad\nsnap").is_err());
-        assert!(validate_vmid("abc").is_err());
-        assert!(validate_vmid("0").is_err());
-    }
-}

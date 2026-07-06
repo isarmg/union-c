@@ -321,6 +321,10 @@ function RamAuthManager({ addTrigger, instanceId }: { addTrigger: number; instan
   const draftRef = useRef(draft);
   const saveRevisionRef = useRef(0);
   const hasLocalChangesRef = useRef(false);
+  const [saveNotice, setSaveNotice] = useState<{
+    tone: "warn" | "danger";
+    text: string;
+  } | null>(null);
   // 组件挂载时把当前计数作为基线，避免刚选中实例就把之前用于创建实例的“+”误判为新增用户。
   const handledAddTriggerRef = useRef(addTrigger);
 
@@ -353,6 +357,10 @@ function RamAuthManager({ addTrigger, instanceId }: { addTrigger: number; instan
       draftRef.current = savedDraft;
       setDraft(savedDraft);
       hasLocalChangesRef.current = false;
+      setSaveNotice({
+        tone: data.message.includes("失败") || data.message.includes("未能") ? "danger" : "warn",
+        text: data.message,
+      });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.ram.instanceAuth(instanceId) }),
       ]);
@@ -367,6 +375,7 @@ function RamAuthManager({ addTrigger, instanceId }: { addTrigger: number; instan
     draftRef.current = nextDraft;
     setDraft(nextDraft);
     hasLocalChangesRef.current = true;
+    setSaveNotice(null);
     const revision = ++saveRevisionRef.current;
 
     if (persist && authQuery.data) {
@@ -401,6 +410,7 @@ function RamAuthManager({ addTrigger, instanceId }: { addTrigger: number; instan
       {authQuery.isLoading ? <LoadingBlock label="正在读取 ram 账号" /> : null}
       {authQuery.error ? <InlineNotice tone="danger" text={authQuery.error.message} /> : null}
       <MutationError mutation={saveMutation} />
+      {saveNotice ? <InlineNotice tone={saveNotice.tone} text={saveNotice.text} /> : null}
 
       <div className="content-grid ram-account-grid">
         <RamMgmtCard
