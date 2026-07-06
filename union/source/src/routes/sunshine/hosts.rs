@@ -44,10 +44,9 @@ pub(super) async fn create_host(
         name: req.name.trim().to_string(),
         host: network::normalize_host(&req.host),
         web_port: req.web_port,
-        mac_address: req.mac_address,
+        mac_address: normalize_mac(req.mac_address),
         // 如果请求没有提供广播地址，使用标准的全子网广播地址
-        broadcast_addr: req
-            .broadcast_addr
+        broadcast_addr: normalize_broadcast_addr(req.broadcast_addr)
             .unwrap_or_else(|| "255.255.255.255:9".to_string()),
         log_path: std::path::PathBuf::from("union/data/sunshine/logs/sunshine.log"),
         username: req.username.trim().to_string(),
@@ -103,10 +102,12 @@ pub(super) async fn update_host(
     // 列表接口不会回传 MAC 明文；未提供时必须保留原值，避免只改名称或地址时
     // 意外清空 Wake-on-LAN 配置。
     if let Some(mac) = req.mac_address {
-        host.mac_address = Some(mac);
+        host.mac_address = normalize_mac(Some(mac));
     }
-    if let Some(b) = req.broadcast_addr {
-        host.broadcast_addr = b; // 只有明确提供了广播地址才更新
+    if let Some(b) = req.broadcast_addr
+        && let Some(broadcast_addr) = normalize_broadcast_addr(Some(b))
+    {
+        host.broadcast_addr = broadcast_addr; // 只有明确提供了广播地址才更新
     }
     host.username = req.username.trim().to_string();
     if let Some(pw) = req.password {

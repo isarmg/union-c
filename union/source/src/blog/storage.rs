@@ -258,8 +258,8 @@ pub(super) fn clean_home_asset_field(value: String, fallback: String) -> String 
 }
 
 pub(super) fn normalize_taxonomy_registry(registry: &mut TaxonomyRegistry) {
-    registry.tags = normalize_list(registry.tags.clone());
-    registry.categories = normalize_list(registry.categories.clone());
+    registry.tags = normalize_list(std::mem::take(&mut registry.tags));
+    registry.categories = normalize_list(std::mem::take(&mut registry.categories));
 }
 
 pub(super) fn normalize_taxonomy_name(name: &str, label: &str) -> AppResult<String> {
@@ -272,9 +272,9 @@ pub(super) fn normalize_taxonomy_name(name: &str, label: &str) -> AppResult<Stri
             "{label} cannot be longer than 64 characters"
         )));
     }
-    if name.contains(['\n', '\r', ',', '，']) {
+    if name.chars().any(char::is_control) || name.contains([',', '，']) {
         return Err(AppError::BadRequest(format!(
-            "{label} cannot contain line breaks or commas"
+            "{label} cannot contain control characters or commas"
         )));
     }
     Ok(name.to_string())
@@ -493,6 +493,17 @@ pub(super) fn validate_post_request(request: &BlogPostSaveRequest) -> AppResult<
             "blog description is required".to_string(),
         ));
     }
+    validate_frontmatter_scalar("blog title", &request.title)?;
+    validate_frontmatter_scalar("blog description", &request.description)?;
+    if let Some(author) = clean_optional(&request.author) {
+        validate_frontmatter_scalar("author", &author)?;
+    }
+    if let Some(series) = clean_optional(&request.series) {
+        validate_frontmatter_scalar("series", &series)?;
+    }
+    if let Some(hero_image) = clean_blog_asset_path(&request.hero_image) {
+        validate_frontmatter_scalar("heroImage", &hero_image)?;
+    }
     if request.content.len() > MAX_CONTENT_BYTES {
         return Err(AppError::BadRequest(format!(
             "post content exceeds the maximum size of {} MiB",
@@ -525,6 +536,15 @@ pub(super) fn validate_post_request(request: &BlogPostSaveRequest) -> AppResult<
         return Err(AppError::BadRequest(
             "blog post path must end with .md or .mdx".to_string(),
         ));
+    }
+    Ok(())
+}
+
+fn validate_frontmatter_scalar(label: &str, value: &str) -> AppResult<()> {
+    if value.chars().any(char::is_control) {
+        return Err(AppError::BadRequest(format!(
+            "{label} cannot contain control characters"
+        )));
     }
     Ok(())
 }
@@ -683,4 +703,66 @@ pub(super) fn is_post_path(path: &Path) -> bool {
         path.extension().and_then(|value| value.to_str()),
         Some("md" | "mdx")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn valid_post_request() -> BlogPostSaveRequest {
+        BlogPostSaveRequest {
+            original_relative_path: None,
+            relative_path: "posts/hello.md".to_string(),
+            title: "Hello".to_string(),
+            description: "A short description".to_string(),
+            pub_date: "2026-01-01".to_string(),
+            updated_date: None,
+            author: Some("Admin".to_string()),
+            category: Some("Notes".to_string()),
+            series: Some("Union".to_string()),
+            hero_image: Some("/cover.jpg".to_string()),
+            tags: vec!["Rust".to_string()],
+            draft: true,
+            featured: false,
+            content: "Body".to_string(),
+        }
+    }
+
+    #[test]
+    fn rejects_control_characters_in_frontmatter_scalars() {
+        let mut request = valid_post_request();
+        request.title = "Hello\nWorld".to_string();
+        assert!(validate_post_request(&request).is_err());
+
+        let mut request = valid_post_request();
+        request.author = Some("Admin\tUser".to_string());
+        assert!(validate_post_request(&request).is_err());
+
+        let mut request = valid_post_request();
+        request.hero_image = Some("/covers/\u{7}bad.jpg".to_string());
+        assert!(validate_post_request(&request).is_err());
+    }
+
+    #[test]
+    fn rejects_control_characters_in_taxonomy_names() {
+        assert!(normalize_taxonomy_name("bad\tname", TaxonomyKind::Tag.label()).is_err());
+
+        let mut request = valid_post_request();
+        request.category = Some("Notes\nDrafts".to_string());
+        assert!(validate_post_request(&request).is_err());
+
+        let mut request = valid_post_request();
+        request.tags = vec!["Rust".to_string(), "bad\rtag".to_string()];
+        assert!(validate_post_request(&request).is_err());
+    }
+
+    #[test]
+    fn accepts_normal_frontmatter_values() {
+        let request = valid_post_request();
+        assert!(validate_post_request(&request).is_ok());
+
+        let rendered = render_post(&request);
+        assert!(rendered.contains("title: \"Hello\""));
+        assert!(rendered.contains("heroImage: \"/blog-assets/cover.jpg\""));
+    }
 }

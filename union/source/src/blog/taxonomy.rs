@@ -149,20 +149,12 @@ pub async fn rename_tag(
         {
             return false;
         }
-        let mut did_change = false;
-        let mut tags = BTreeSet::new();
-        for tag in &front.tags {
-            if tag == &from {
-                tags.insert(to.clone());
-                did_change = true;
-            } else {
-                tags.insert(tag.clone());
-            }
+        if let Some(tags) = rename_tags_preserving_order(&front.tags, &from, &to) {
+            front.tags = tags;
+            true
+        } else {
+            false
         }
-        if did_change {
-            front.tags = tags.into_iter().collect();
-        }
-        did_change
     })
     .await?;
     let changed = if let Some(category) = category.as_deref() {
@@ -374,4 +366,50 @@ fn normalize_optional_category(category: &Option<String>) -> AppResult<Option<St
     clean_optional(category)
         .map(|value| normalize_taxonomy_name(&value, TaxonomyKind::Category.label()))
         .transpose()
+}
+
+fn rename_tags_preserving_order(tags: &[String], from: &str, to: &str) -> Option<Vec<String>> {
+    let mut did_change = false;
+    let renamed = tags
+        .iter()
+        .map(|tag| {
+            if tag == from {
+                did_change = true;
+                to.to_string()
+            } else {
+                tag.clone()
+            }
+        })
+        .collect::<Vec<_>>();
+    did_change.then(|| normalize_list(renamed))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn renaming_tags_preserves_existing_order() {
+        let tags = vec!["beta".to_string(), "alpha".to_string(), "old".to_string()];
+
+        assert_eq!(
+            rename_tags_preserving_order(&tags, "old", "new"),
+            Some(vec![
+                "beta".to_string(),
+                "alpha".to_string(),
+                "new".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn renaming_tags_removes_duplicates_without_sorting() {
+        let tags = vec!["beta".to_string(), "old".to_string(), "new".to_string()];
+
+        assert_eq!(
+            rename_tags_preserving_order(&tags, "old", "new"),
+            Some(vec!["beta".to_string(), "new".to_string()])
+        );
+        assert_eq!(rename_tags_preserving_order(&tags, "missing", "new"), None);
+    }
 }

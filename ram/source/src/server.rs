@@ -1311,7 +1311,7 @@ impl Server {
 
     async fn handle_copy(&self, path: &Path, req: &Request, res: &mut Response) -> Result<()> {
         // COPY 的目标路径来自 Destination 头，必须重新做权限和根目录检查。
-        let dest = match self.extract_dest(req, res) {
+        let dest = match self.extract_dest(req, res).await {
             Some(dest) => dest,
             None => {
                 return Ok(());
@@ -1339,7 +1339,7 @@ impl Server {
 
     async fn handle_move(&self, path: &Path, req: &Request, res: &mut Response) -> Result<()> {
         // MOVE 和 COPY 类似，但最终使用 rename，相当于移动或重命名。
-        let dest = match self.extract_dest(req, res) {
+        let dest = match self.extract_dest(req, res).await {
             Some(dest) => dest,
             None => {
                 return Ok(());
@@ -1545,7 +1545,7 @@ impl Server {
             .unwrap_or_default()
     }
 
-    fn extract_dest(&self, req: &Request, res: &mut Response) -> Option<PathBuf> {
+    async fn extract_dest(&self, req: &Request, res: &mut Response) -> Option<PathBuf> {
         // WebDAV COPY/MOVE 的目标在 Destination 头里，不能直接信任，需要重新解析。
         let headers = req.headers();
         let dest_path = match self
@@ -1560,18 +1560,13 @@ impl Server {
         };
 
         let authorization = headers.get(AUTHORIZATION);
-        let guard = self
-            .args
-            .auth
-            .guard(&dest_path, req.method(), authorization, None, false);
-
-        match guard {
-            (_, Some(_)) => {}
-            _ => {
-                status_forbid(res);
-                return None;
-            }
-        };
+        if !self
+            .destination_allowed(&dest_path, req.method(), authorization)
+            .await
+        {
+            status_forbid(res);
+            return None;
+        }
 
         let dest = match self.join_path(&dest_path) {
             Some(dest) => dest,
@@ -1582,6 +1577,20 @@ impl Server {
         };
 
         Some(dest)
+    }
+
+    async fn destination_allowed(
+        &self,
+        dest_path: &str,
+        method: &Method,
+        authorization: Option<&HeaderValue>,
+    ) -> bool {
+        self.auth
+            .read()
+            .await
+            .guard(dest_path, method, authorization, None, false)
+            .1
+            .is_some()
     }
 
     fn extract_destination_header(&self, headers: &HeaderMap<HeaderValue>) -> Option<String> {
@@ -2233,4 +2242,44 @@ where
         }
     }
     paths
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::AccessControl;
+
+    fn basic_auth(username: &str, password: &str) -> HeaderValue {
+        HeaderValue::from_str(&format!(
+            "Basic {}",
+            STANDARD.encode(format!("{username}:{password}"))
+        ))
+        .expect("valid basic auth header")
+    }
+
+    #[tokio::test]
+    async fn destination_permission_uses_hot_reloaded_auth() {
+        let args = Args {
+            auth: AccessControl::new(&["old:password@/old:rw"]).expect("old auth"),
+            ..Args::default()
+        };
+        let server = Server::init(args, Arc::new(AtomicBool::new(true))).expect("server init");
+
+        *server.auth.write().await =
+            AccessControl::new(&["new:password@/new:rw"]).expect("new auth");
+
+        let method = Method::from_bytes(b"COPY").expect("copy method");
+        let auth = basic_auth("new", "password");
+
+        assert!(
+            server
+                .destination_allowed("/new/file.txt", &method, Some(&auth))
+                .await
+        );
+        assert!(
+            !server
+                .destination_allowed("/old/file.txt", &method, Some(&auth))
+                .await
+        );
+    }
 }

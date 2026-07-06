@@ -54,7 +54,7 @@ pub(super) fn validate_host_request(
     if req.web_port == 0 {
         return Err(AppError::BadRequest("API 端口必须大于 0".to_string()));
     }
-    if let Some(address) = req.broadcast_addr.as_deref()
+    if let Some(address) = req.broadcast_addr.as_deref().and_then(non_empty_trimmed)
         && address.parse::<std::net::SocketAddr>().is_err()
     {
         return Err(AppError::BadRequest("WOL 广播地址格式无效".to_string()));
@@ -65,6 +65,26 @@ pub(super) fn validate_host_request(
         ));
     }
     Ok(())
+}
+
+pub(super) fn normalize_mac(mac: Option<String>) -> Option<String> {
+    mac.and_then(|value| {
+        let value = value.trim();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_ascii_uppercase().replace('-', ":"))
+        }
+    })
+}
+
+pub(super) fn normalize_broadcast_addr(address: Option<String>) -> Option<String> {
+    address.and_then(|value| non_empty_trimmed(&value).map(ToOwned::to_owned))
+}
+
+fn non_empty_trimmed(value: &str) -> Option<&str> {
+    let value = value.trim();
+    (!value.is_empty()).then_some(value)
 }
 
 pub(super) fn validate_proxy_json_object(
@@ -217,5 +237,41 @@ pub(super) fn host_info(
         reachable,
         connected: connection.is_some_and(Result::is_ok),
         connection_error: connection.and_then(|result| result.as_ref().err().cloned()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::SunshineHostSaveRequest;
+
+    #[test]
+    fn normalizes_optional_mac_values() {
+        assert_eq!(
+            normalize_mac(Some(" aa-bb-cc-dd-ee-ff ".to_string())),
+            Some("AA:BB:CC:DD:EE:FF".to_string())
+        );
+        assert_eq!(normalize_mac(Some("  ".to_string())), None);
+        assert_eq!(normalize_mac(None), None);
+    }
+
+    #[test]
+    fn validates_trimmed_broadcast_address() {
+        let mut request = SunshineHostSaveRequest {
+            name: "host".to_string(),
+            host: "192.168.1.2".to_string(),
+            web_port: 47990,
+            mac_address: None,
+            broadcast_addr: Some(" 255.255.255.255:9 ".to_string()),
+            username: "admin".to_string(),
+            password: None,
+            verify_tls: true,
+        };
+
+        assert!(validate_host_request(&request, false).is_ok());
+        request.broadcast_addr = Some("  ".to_string());
+        assert!(validate_host_request(&request, false).is_ok());
+        request.broadcast_addr = Some("not a socket".to_string());
+        assert!(validate_host_request(&request, false).is_err());
     }
 }
