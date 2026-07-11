@@ -1,0 +1,56 @@
+services:
+  otel-queue-init:
+    image: ${BUSYBOX_IMAGE:-busybox:1.37.0}
+    user: "0:0"
+    command: ["sh", "-c", "chown -R 10001:10001 /queue"]
+    restart: "no"
+    volumes:
+      - otel-queue:/queue
+
+  otel-collector:
+    image: ${OTEL_COLLECTOR_IMAGE:-otel/opentelemetry-collector-contrib:0.149.0}
+    user: "10001:10001"
+    command: ["--config=/etc/otelcol/config.yaml"]
+    restart: unless-stopped
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - otel-queue:/var/lib/otelcol
+    ports:
+      - "127.0.0.1:4318:4318"
+    depends_on:
+      otel-queue-init:
+        condition: service_completed_successfully
+      victoriametrics:
+        condition: service_started
+
+  victoriametrics:
+    image: ${VICTORIAMETRICS_IMAGE:-victoriametrics/victoria-metrics:v1.147.0}
+    command:
+      - -storageDataPath=/storage
+      - -retentionPeriod=${METRICS_RETENTION:-90d}
+      - -opentelemetry.usePrometheusNaming
+    restart: unless-stopped
+    volumes:
+      - victoria-data:/storage
+    ports:
+      - "127.0.0.1:8428:8428"
+
+  grafana:
+    image: ${GRAFANA_IMAGE:-grafana/grafana:13.0.1}
+    restart: unless-stopped
+    environment:
+      GF_SERVER_HTTP_ADDR: 0.0.0.0
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "127.0.0.1:3002:3000"
+    depends_on:
+      - victoriametrics
+
+volumes:
+  otel-queue:
+  victoria-data:
+  grafana-data:

@@ -1,0 +1,48 @@
+#!/bin/sh
+set -eu
+
+user="_unioncagent"
+group="_unioncagent"
+state="/Library/Application Support/UnionC Agent"
+
+if ! dscl . -read "/Groups/$group" >/dev/null 2>&1; then
+  gid=450
+  while dscl . -list /Groups PrimaryGroupID | awk '{print $2}' | grep -qx "$gid"; do
+    gid=$((gid - 1))
+  done
+  dscl . -create "/Groups/$group"
+  dscl . -create "/Groups/$group" RealName "UnionC Agent"
+  dscl . -create "/Groups/$group" PrimaryGroupID "$gid"
+  dscl . -create "/Groups/$group" Password '*'
+else
+  gid="$(dscl . -read "/Groups/$group" PrimaryGroupID | awk '{print $2}')"
+fi
+
+if ! dscl . -read "/Users/$user" >/dev/null 2>&1; then
+  uid=450
+  while dscl . -list /Users UniqueID | awk '{print $2}' | grep -qx "$uid"; do
+    uid=$((uid - 1))
+  done
+  dscl . -create "/Users/$user"
+  dscl . -create "/Users/$user" RealName "UnionC Agent"
+  dscl . -create "/Users/$user" UniqueID "$uid"
+  dscl . -create "/Users/$user" PrimaryGroupID "$gid"
+  dscl . -create "/Users/$user" UserShell /usr/bin/false
+  dscl . -create "/Users/$user" NFSHomeDirectory /var/empty
+  dscl . -create "/Users/$user" IsHidden 1
+  dscl . -create "/Users/$user" Password '*'
+fi
+
+if [ ! -e "$state/config.json" ]; then
+  cp "$state/config.example.json" "$state/config.json"
+fi
+chown -R "$user:$group" "$state"
+chmod 0700 "$state"
+chmod 0600 "$state/config.json" "$state/config.example.json"
+
+touch /var/log/unionc-agent.log
+chown "$user:$group" /var/log/unionc-agent.log
+chmod 0600 /var/log/unionc-agent.log
+
+launchctl bootout system/com.unionc.agent >/dev/null 2>&1 || true
+launchctl bootstrap system /Library/LaunchDaemons/com.unionc.agent.plist

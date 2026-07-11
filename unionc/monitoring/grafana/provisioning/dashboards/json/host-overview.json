@@ -1,0 +1,88 @@
+{
+  "annotations": { "list": [] },
+  "editable": false,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "unionc-metrics" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "targets": [{ "expr": "system_cpu_utilization_ratio{host_id=\"$host\"}", "legendFormat": "CPU" }],
+      "title": "CPU utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "unionc-metrics" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "targets": [{ "expr": "system_memory_usage_bytes{host_id=\"$host\", system_memory_state=\"used\"}", "legendFormat": "used" }],
+      "title": "Memory used",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "unionc-metrics" },
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 3,
+      "targets": [{ "expr": "rate(system_network_io_bytes_total{host_id=\"$host\"}[1m])", "legendFormat": "{{network_interface_name}} {{network_io_direction}}" }],
+      "title": "Network throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "unionc-metrics" },
+      "fieldConfig": { "defaults": { "unit": "celsius" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 4,
+      "targets": [{ "expr": "hw_temperature_celsius{host_id=\"$host\"}", "legendFormat": "{{sensor_label}}" }],
+      "title": "Temperatures",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "unionc-metrics" },
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 5,
+      "targets": [{ "expr": "rate(system_disk_io_bytes_total{host_id=\"$host\"}[1m])", "legendFormat": "{{system_device}} {{disk_io_direction}}" }],
+      "title": "Disk throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "unionc-metrics" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "id": 6,
+      "targets": [{ "expr": "hw_gpu_utilization_ratio{host_id=\"$host\"}", "legendFormat": "{{gpu_name}}" }],
+      "title": "GPU utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "unionc-metrics" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "id": 7,
+      "targets": [{ "expr": "hw_gpu_memory_usage_bytes{host_id=\"$host\"}", "legendFormat": "{{gpu_name}}" }],
+      "title": "GPU memory used",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 42,
+  "tags": ["unionc", "host"],
+  "templating": {
+    "list": [
+      {
+        "name": "host",
+        "label": "Host",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "unionc-metrics" },
+        "query": { "query": "label_values(system_uptime_seconds, host_id)", "refId": "host" },
+        "refresh": 1
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "title": "UnionC Host Overview",
+  "uid": "unionc-host-overview",
+  "version": 1
+}

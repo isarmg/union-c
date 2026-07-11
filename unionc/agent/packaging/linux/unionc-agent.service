@@ -1,0 +1,37 @@
+[Unit]
+Description=UnionC read-only host telemetry agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=unionc-agent
+Group=unionc-agent
+ExecStart=/usr/bin/unionc-agent run --config /etc/unionc-agent/config.json
+Restart=on-failure
+RestartSec=10s
+StateDirectory=unionc-agent
+ConfigurationDirectory=unionc-agent
+UMask=0077
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/unionc-agent
+
+[Install]
+WantedBy=multi-user.target

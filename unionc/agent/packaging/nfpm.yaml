@@ -1,0 +1,25 @@
+name: unionc-agent
+arch: ${NFPM_ARCH}
+platform: linux
+version: ${VERSION}
+section: admin
+priority: optional
+maintainer: UnionC
+description: Read-only cross-platform host telemetry agent for UnionC
+license: MIT OR Apache-2.0
+contents:
+  - src: ./target/${RUST_TARGET}/release/unionc-agent
+    dst: /usr/bin/unionc-agent
+    file_info:
+      mode: 0755
+  - src: ./config.example.json
+    dst: /etc/unionc-agent/config.json
+    type: config|noreplace
+    file_info:
+      mode: 0600
+  - src: ./packaging/linux/unionc-agent.service
+    dst: /usr/lib/systemd/system/unionc-agent.service
+scripts:
+  postinstall: ./packaging/linux/postinstall.sh
+  preremove: ./packaging/linux/preremove.sh
+

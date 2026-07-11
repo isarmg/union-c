@@ -1,0 +1,19 @@
+{
+  "endpoint": "https://unionc.example.com/api/agent/v1/report",
+  "registration_endpoint": "https://unionc.example.com/api/agent/v1/register",
+  "token": null,
+  "enrollment_token": "replace-with-the-deployment-enrollment-token-for-first-start",
+  "otlp_endpoint": "https://unionc.example.com/otlp/v1/metrics",
+  "otlp_token": null,
+  "host_id": null,
+  "interval_seconds": 10,
+  "slow_interval_seconds": 30,
+  "request_timeout_seconds": 10,
+  "jitter_percent": 10,
+  "spool_max_bytes": 67108864,
+  "tls_identity_pem": null,
+  "tls_identity_pkcs12": null,
+  "tls_identity_password": null,
+  "tls_ca_pem": null,
+  "allow_insecure_http": false
+}

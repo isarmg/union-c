@@ -1,0 +1,163 @@
+name: unionc
+
+on:
+  push:
+    paths:
+      - "unionc/**"
+      - "backc/**"
+      - ".github/workflows/unionc.yml"
+  pull_request:
+    paths:
+      - "unionc/**"
+      - "backc/**"
+      - ".github/workflows/unionc.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: unionc_test
+          POSTGRES_PASSWORD: unionc_test_password
+          POSTGRES_DB: unionc_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U unionc_test -d unionc_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      UNIONC_TEST_DATABASE_URL: postgresql://unionc_test:unionc_test_password@127.0.0.1:5432/unionc_test
+    steps:
+      - uses: actions/checkout@v7
+      - run: cargo fmt --manifest-path unionc/source/Cargo.toml --all -- --check
+      - run: cargo test --manifest-path unionc/source/Cargo.toml --all-targets --locked
+      - run: cargo clippy --manifest-path unionc/source/Cargo.toml --all-targets --locked -- -D warnings
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: backc/source/package-lock.json
+      - working-directory: backc/source
+        run: npm ci
+      - working-directory: backc/source
+        run: npm audit --audit-level=high
+      - working-directory: backc/source
+        run: npm run typecheck
+      - working-directory: backc/source
+        run: npm run build
+
+  agent:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            args: ""
+          - os: windows-latest
+            args: ""
+          - os: macos-latest
+            args: "--no-default-features --features otlp"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Format
+        run: cargo fmt --manifest-path unionc/agent/Cargo.toml --all -- --check
+      - name: Test
+        shell: bash
+        run: cargo test --manifest-path unionc/agent/Cargo.toml --locked ${{ matrix.args }}
+      - name: Clippy
+        shell: bash
+        run: cargo clippy --manifest-path unionc/agent/Cargo.toml --all-targets --locked ${{ matrix.args }} -- -D warnings
+      - name: Validate Linux package scripts
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sh -n unionc/agent/packaging/linux/postinstall.sh
+          sh -n unionc/agent/packaging/linux/preremove.sh
+          python3 -m json.tool unionc/agent/config.example.json >/dev/null
+      - name: Validate Windows installer syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          foreach ($path in @(
+            "unionc/agent/packaging/windows/install.ps1",
+            "unionc/agent/packaging/windows/uninstall.ps1"
+          )) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $path), [ref]$tokens, [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) { $errors | Out-String | Write-Error }
+          }
+      - name: Build and validate macOS package
+        if: runner.os == 'macOS'
+        shell: bash
+        working-directory: unionc/agent
+        run: |
+          cargo build --release --locked ${{ matrix.args }}
+          plutil -lint packaging/macos/com.unionc.agent.plist
+          sh -n packaging/macos/build-pkg.sh
+          sh -n packaging/macos/scripts/postinstall
+          BINARY=target/release/unionc-agent VERSION=0.1.0-ci sh packaging/macos/build-pkg.sh
+
+  monitoring-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate compose
+        working-directory: unionc/monitoring
+        env:
+          GRAFANA_ADMIN_PASSWORD: validation-only
+        run: docker compose config --quiet
+      - name: Start and probe telemetry ingestion
+        working-directory: unionc/monitoring
+        env:
+          GRAFANA_ADMIN_PASSWORD: validation-only
+        run: |
+          docker compose up -d --wait --wait-timeout 60 victoriametrics otel-collector
+          UNIONC_AGENT_TEST_OTLP_ENDPOINT=http://127.0.0.1:4318/v1/metrics \
+            cargo test --manifest-path ../agent/Cargo.toml --test otlp_live --locked -- --nocapture
+          found=""
+          for attempt in $(seq 1 20); do
+            result="$(curl --fail --silent --show-error --get \
+              --data-urlencode 'query=system_cpu_utilization_ratio{host_name="otlp-ci-host"}' \
+              http://127.0.0.1:8428/api/v1/query)"
+            if grep -q 'otlp-ci-host' <<<"$result"; then
+              found=1
+              break
+            fi
+            sleep 1
+          done
+          test "$found" = 1
+      - name: Stop telemetry validation stack
+        if: always()
+        working-directory: unionc/monitoring
+        env:
+          GRAFANA_ADMIN_PASSWORD: validation-only
+        run: docker compose down --volumes
+      - name: Validate systemd unit
+        run: |
+          cp unionc/agent/packaging/linux/unionc-agent.service /tmp/unionc-agent.service
+          sed -i 's#^ExecStart=.*#ExecStart=/bin/true#' /tmp/unionc-agent.service
+          systemd-analyze verify /tmp/unionc-agent.service
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit --file unionc/source/Cargo.lock
+      - run: cargo audit --file unionc/agent/Cargo.lock

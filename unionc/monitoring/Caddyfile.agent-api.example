@@ -1,0 +1,23 @@
+# Optional dedicated UnionC Agent API hostname. Caddy adds X-Forwarded-Proto,
+# while UnionC remains bound to 127.0.0.1. Client certificates are recommended
+# for managed fleets in addition to the per-host bearer token.
+agents.example.com {
+    tls {
+        client_auth {
+            mode require_and_verify
+            trust_pool file {
+                pem_file /etc/caddy/unionc-agent-ca.pem
+            }
+        }
+    }
+
+    request_body {
+        max_size 512KB
+    }
+
+    handle /api/agent/v1/* {
+        reverse_proxy 127.0.0.1:8081
+    }
+
+    respond 404
+}

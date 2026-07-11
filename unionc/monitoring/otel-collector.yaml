@@ -1,0 +1,48 @@
+extensions:
+  file_storage:
+    directory: /var/lib/otelcol
+    create_directory: true
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+  batch:
+    timeout: 5s
+    send_batch_size: 4096
+    send_batch_max_size: 8192
+
+exporters:
+  otlphttp/victoriametrics:
+    metrics_endpoint: http://victoriametrics:8428/opentelemetry/v1/metrics
+    compression: gzip
+    encoding: proto
+    sending_queue:
+      enabled: true
+      storage: file_storage
+      queue_size: 10000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      # 0 means the persistent queue never discards a batch merely because the
+      # metrics backend has been unavailable for a long time.
+      max_elapsed_time: 0s
+
+service:
+  extensions: [file_storage]
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/victoriametrics]

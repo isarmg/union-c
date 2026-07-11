@@ -9,6 +9,15 @@ Union 是一个仅面向 Linux 的自托管基础设施控制面：用一个管�
 
 运行时数据写入各项目自己的 `data/`，内容不受 Git 管理。Union 管理员凭据保存在 `union/data/` 的本地私有配置中，业务配置、文章和审计数据以 PostgreSQL 为管理源；未配置数据库时管理端仍可启动并从控制台完成配置。生产环境通过 Caddy 暴露 HTTPS，`union` 和 `ram` 只监听本机回环地址。
 
+## 精简控制台
+
+仓库同时提供不包含 Proxmox VE、blog 和 ram 管理能力的独立精简版：
+
+- `unionc/`：认证、系统监控、PostgreSQL 设置和 Sunshine 管理 API；
+- `backc/`：与 UnionC 配套的 React 管理界面。
+
+两者使用独立端口、运行目录、环境变量和数据库迁移，开发与构建说明见 [unionc/doc/README.md](unionc/doc/README.md) 与 [backc/doc/README.md](backc/doc/README.md)。
+
 ## 生产部署入口
 
 前提：Linux、PostgreSQL、Caddy、仓库指定版本的 Rust/Node.js，以及可用的 `age`。部署脚本不会创建数据库，也不会修改 Caddy 主配置。
@@ -30,3 +39,5 @@ sudo ./scripts/deploy-linux.sh start
 - [back/doc/README.md](back/doc/README.md)：管理界面开发与构建。
 - [ram/doc/README.md](ram/doc/README.md)：文件服务开发与运行边界。
 - [blog/doc/README.md](blog/doc/README.md)：静态博客开发、数据输入和发布。
+- [unionc/doc/README.md](unionc/doc/README.md)：精简后端的运行、配置和验证。
+- [backc/doc/README.md](backc/doc/README.md)：精简前端的开发与构建。
